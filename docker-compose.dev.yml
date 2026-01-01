@@ -72,10 +72,13 @@ services:
       # Mount application code for hot-reload (development)
       - ./backend:/app/backend:ro
       - ./frontend:/app/frontend:ro
+      # Tests directory for manual testing
+      - ./tests:/app/tests:ro
       # Data and logs
       - ./data:/app/data
       - ./logs:/app/logs
-      - ./models:/app/models:rw
+      # Models are already in base image at /app/models - don't overwrite with volume
+      # - ./models:/app/models:rw
       # Override entrypoint for development
       - ./deployment/docker/entrypoint-dev.sh:/app/entrypoint.sh:ro
 

@@ -83,8 +83,12 @@ class Settings(BaseSettings):
     EMBEDDING_MODEL_PATH: str = "/app/models/sarashina"
     EMBEDDING_DEVICE: str = "cuda:0"
     EMBEDDING_BATCH_SIZE: int = 64
-    EMBEDDING_DIMENSION: int = 768
+    EMBEDDING_DIMENSION: int = 1792  # Updated to actual model output dimension
     EMBEDDING_MAX_LENGTH: int = 512
+    EMBEDDING_NORMALIZE: bool = True
+    EMBEDDING_TRUNCATE: bool = True
+    EMBEDDING_CACHE_ENABLED: bool = True
+    EMBEDDING_CACHE_TTL: int = 86400  # 24 hours in seconds
 
     # Reranker
     RERANKER_MODEL: str = "nvidia/llama-3.2-nv-rerankqa-1b-v2"
@@ -98,11 +102,14 @@ class Settings(BaseSettings):
     CHUNK_OVERLAP: int = 50
     CHUNK_MAX_TABLE_SIZE: int = 2048
 
-    # Search
+    # Search / Retrieval
     SEARCH_TOP_K: int = 20
     SEARCH_NPROBE: int = 128
     HYBRID_SEARCH_VECTOR_WEIGHT: float = 0.7
     HYBRID_SEARCH_KEYWORD_WEIGHT: float = 0.3
+    RETRIEVAL_MIN_SCORE: float = 0.3
+    RETRIEVAL_RRF_K: int = 60
+    RETRIEVAL_CACHE_ENABLED: bool = True
 
     # Rate Limiting
     RATE_LIMIT_PER_MINUTE: int = 60

@@ -52,7 +52,7 @@ class Chunk(Base, TimestampMixin, UUIDMixin):
 
     # Embedding info
     embedding_model: Mapped[str | None] = mapped_column(String(100))
-    embedding_dimension: Mapped[int] = mapped_column(Integer, default=768)
+    embedding_dimension: Mapped[int] = mapped_column(Integer, default=1792)  # Sarashina-1B outputs 1792 dims
     embedding_created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     # Relationships

@@ -105,12 +105,23 @@ COPY --from=builder /app/.venv /app/.venv
 # Download and cache models in the image
 RUN mkdir -p /app/models/sarashina /app/models/yomitoku
 
-# Setup Sarashina Embedding Model (Japanese embeddings) - use huggingface-cli for proper download
-RUN HF_HUB_ENABLE_HF_TRANSFER=1 huggingface-cli download \
+# Install git-lfs for downloading large model files from HuggingFace
+RUN curl -s https://packagecloud.io/install/repositories/github/git-lfs/script.deb.sh | bash && \
+    apt-get install -y git-lfs && \
+    git lfs install && \
+    rm -rf /var/lib/apt/lists/*
+
+# Setup Sarashina Embedding Model (Japanese embeddings)
+# Use huggingface-cli with proper LFS support for downloading model weights
+RUN --mount=type=cache,target=/root/.cache/huggingface \
+    HF_HUB_ENABLE_HF_TRANSFER=1 \
+    huggingface-cli download \
     sbintuitions/sarashina-embedding-v1-1b \
     --local-dir /app/models/sarashina \
     --local-dir-use-symlinks False && \
-    ls -la /app/models/sarashina/
+    du -sh /app/models/sarashina && \
+    ls -la /app/models/sarashina/*.safetensors 2>/dev/null || echo "Checking model files..." && \
+    find /app/models/sarashina/ -name "*.safetensors" -size +100M -exec ls -lh {} \;
 
 # Create non-root user for running the application
 RUN id -u appuser 2>/dev/null || useradd -m -u 1001 appuser && \

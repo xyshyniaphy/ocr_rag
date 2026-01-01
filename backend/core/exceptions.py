@@ -179,3 +179,43 @@ class RAGException(AppException):
             status_code=500,
             details=details,
         )
+
+
+class RetrievalException(AppException):
+    """Retrieval/search error exception"""
+
+    def __init__(
+        self,
+        message: str,
+        retriever: Optional[str] = None,
+        details: Optional[Dict[str, Any]] = None,
+    ):
+        details = details or {}
+        if retriever:
+            details["retriever"] = retriever
+        super().__init__(
+            message=message,
+            code="retrieval_error",
+            status_code=500,
+            details=details,
+        )
+
+
+class LLMException(AppException):
+    """LLM generation error exception"""
+
+    def __init__(
+        self,
+        message: str,
+        model: Optional[str] = None,
+        details: Optional[Dict[str, Any]] = None,
+    ):
+        details = details or {}
+        if model:
+            details["model"] = model
+        super().__init__(
+            message=message,
+            code="llm_error",
+            status_code=500,
+            details=details,
+        )

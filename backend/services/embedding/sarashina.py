@@ -41,7 +41,7 @@ class SarashinaEmbeddingModel(BaseEmbeddingModel):
 
     # Model configuration
     MODEL_NAME = "sbintuitions/sarashina-embedding-v1-1b"
-    DIMENSION = 768
+    DIMENSION = 1792  # Updated to actual model output dimension
     MAX_LENGTH = 512
 
     # Local model path (from Docker base image)
@@ -98,6 +98,10 @@ class SarashinaEmbeddingModel(BaseEmbeddingModel):
             return
 
         try:
+            # Set environment variable for protobuf compatibility
+            import os
+            os.environ['PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION'] = 'python'
+
             from sentence_transformers import SentenceTransformer
             import torch
 
@@ -107,7 +111,6 @@ class SarashinaEmbeddingModel(BaseEmbeddingModel):
             model_path = self.MODEL_PATH
 
             # Check if local model exists
-            import os
             if not os.path.exists(model_path) or not os.listdir(model_path):
                 logger.info(
                     f"Local model not found at {model_path}, "
@@ -116,9 +119,12 @@ class SarashinaEmbeddingModel(BaseEmbeddingModel):
                 model_path = self.MODEL_NAME
 
             # Initialize the model
+            # Use cache_folder to ensure proper caching
+            cache_folder = os.path.expanduser("~/.cache/huggingface/hub")
             self._model = SentenceTransformer(
                 model_path,
                 device=self.device,
+                cache_folder=cache_folder,
             )
 
             # Verify model dimension
