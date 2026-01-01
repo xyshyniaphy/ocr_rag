@@ -7,6 +7,9 @@ from datetime import datetime
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
 
+# Import SQLAlchemy model
+from backend.db.models import Document as DocumentSQLModel
+
 
 class DocumentMetadata(BaseModel):
     """Document metadata schema"""
@@ -90,3 +93,7 @@ class SourceReference(BaseModel):
     chunk_text: Optional[str]
     relevance_score: float
     rerank_score: Optional[float]
+
+
+# Export SQLAlchemy model for backward compatibility with API imports
+Document = DocumentSQLModel

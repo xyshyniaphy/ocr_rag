@@ -11,7 +11,11 @@ echo "=========================================="
 # Note: Docker Compose handles service dependencies via depends_on and health checks
 # Services are ready when this script starts
 
-# Run database migrations
+# Create logs directory with proper permissions
+mkdir -p /app/logs
+chown -R appuser:appuser /app/logs 2>/dev/null || true
+
+# Run database migrations (skip if issues)
 echo "Running database migrations..."
 cd /app && python -m alembic upgrade head 2>/dev/null || echo "Migration skipped (first run or no changes)"
 
@@ -23,9 +27,6 @@ echo "  - API Docs: http://localhost:8000/docs"
 echo "  - Streamlit frontend: http://localhost:8501"
 echo "  - Flower (Celery): http://localhost:9100"
 echo ""
-
-# Create logs directory
-mkdir -p /app/logs
 
 # Start FastAPI with auto-reload (output to stdout/stderr)
 cd /app

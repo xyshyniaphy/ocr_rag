@@ -6,12 +6,13 @@ RAG query endpoints and search
 import uuid
 from datetime import datetime
 from typing import List
-from fastapi import APIRouter, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.logging import get_logger
 from backend.core.exceptions import ValidationException
 from backend.db.session import get_db_session
+from backend.db.models import Document as DocumentModel
 from backend.models.query import (
     QueryRequest,
     QueryResponse,
@@ -19,7 +20,6 @@ from backend.models.query import (
     SearchRequest,
     SearchResponse,
 )
-from backend.models.document import Document as DocumentModel
 
 logger = get_logger(__name__)
 router = APIRouter()
@@ -92,7 +92,7 @@ async def query_rag(
     ]
 
     # Create query record
-    from backend.models.query import Query as QueryModel
+    from backend.db.models import Query as QueryModel
 
     query_record = QueryModel(
         id=uuid.uuid4(),

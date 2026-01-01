@@ -32,6 +32,56 @@ if "user" not in st.session_state:
     st.session_state.user = None
 
 
+def refresh_access_token() -> bool:
+    """Refresh access token using refresh token"""
+    if not st.session_state.refresh_token:
+        return False
+
+    try:
+        response = requests.post(
+            f"{API_BASE_URL}/auth/refresh",
+            json={"refresh_token": st.session_state.refresh_token},
+            timeout=30
+        )
+        response.raise_for_status()
+        data = response.json()
+
+        st.session_state.access_token = data["access_token"]
+        st.session_state.refresh_token = data["refresh_token"]
+        st.session_state.user = data.get("user", st.session_state.user)
+        st.session_state.authenticated = True
+        return True
+    except Exception as e:
+        st.session_state.authenticated = False
+        st.session_state.access_token = None
+        st.session_state.refresh_token = None
+        st.session_state.user = None
+        return False
+
+
+def verify_session() -> bool:
+    """Verify current session is valid"""
+    if not st.session_state.access_token:
+        return False
+
+    try:
+        response = requests.get(
+            f"{API_BASE_URL}/auth/me",
+            headers={"Authorization": f"Bearer {st.session_state.access_token}"},
+            timeout=30
+        )
+        if response.status_code == 200:
+            st.session_state.user = response.json()
+            st.session_state.authenticated = True
+            return True
+        elif response.status_code == 401:
+            # Token expired, try refresh
+            return refresh_access_token()
+        return False
+    except Exception:
+        return False
+
+
 def api_request(
     method: str,
     endpoint: str,
@@ -39,9 +89,11 @@ def api_request(
     params: Dict[str, Any] = None,
     files: Dict[str, Any] = None,
 ) -> Dict[str, Any]:
-    """Make API request"""
+    """Make API request with auto-refresh on 401"""
     url = f"{API_BASE_URL}{endpoint}"
     headers = {}
+
+    # Try to get token, refresh if needed
     if st.session_state.access_token:
         headers["Authorization"] = f"Bearer {st.session_state.access_token}"
 
@@ -59,6 +111,28 @@ def api_request(
             response = requests.delete(url, headers=headers, timeout=30)
         else:
             raise ValueError(f"Unsupported method: {method}")
+
+        # If 401, try to refresh token and retry
+        if response.status_code == 401 and st.session_state.refresh_token:
+            if refresh_access_token():
+                headers["Authorization"] = f"Bearer {st.session_state.access_token}"
+                # Retry the request
+                if method.upper() == "GET":
+                    response = requests.get(url, headers=headers, params=params, timeout=30)
+                elif method.upper() == "POST":
+                    if files:
+                        response = requests.post(
+                            url, headers=headers, data=data, files=files, timeout=60
+                        )
+                    else:
+                        response = requests.post(url, headers=headers, json=data, timeout=30)
+                elif method.upper() == "DELETE":
+                    response = requests.delete(url, headers=headers, timeout=30)
+            else:
+                # Refresh failed, logout
+                st.session_state.authenticated = False
+                st.error("Session expired. Please login again.")
+                return {}
 
         response.raise_for_status()
         return response.json()
@@ -374,6 +448,15 @@ def render_settings():
 
 def main():
     """Main application"""
+    # Verify existing session on app load if tokens exist
+    if st.session_state.access_token:
+        if not verify_session():
+            # Session invalid, clear tokens
+            st.session_state.authenticated = False
+            st.session_state.access_token = None
+            st.session_state.refresh_token = None
+            st.session_state.user = None
+
     page = render_sidebar()
 
     if page == "login":

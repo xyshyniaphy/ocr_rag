@@ -4,16 +4,17 @@ Database model for text chunks
 """
 
 import uuid
+from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import String, Integer, Float, Boolean, DateTime, Text
+from sqlalchemy import String, Integer, Float, Boolean, DateTime, Text, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.db.base import Base, TimestampMixin, UUIDMixin
 
 if TYPE_CHECKING:
-    from backend.models.document import Document
+    from backend.db.models import Document
 
 
 class Chunk(Base, TimestampMixin, UUIDMixin):
@@ -24,6 +25,7 @@ class Chunk(Base, TimestampMixin, UUIDMixin):
     # References
     document_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
+        ForeignKey("documents.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
@@ -57,5 +59,4 @@ class Chunk(Base, TimestampMixin, UUIDMixin):
     document: Mapped["Document"] = relationship(
         "Document",
         back_populates="chunks",
-        foreign_keys=[document_id],
     )

@@ -4,7 +4,9 @@ Login, logout, token refresh, and user management
 """
 
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, status
+from typing import Optional
+
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.config import settings
@@ -31,6 +33,53 @@ logger = get_logger(__name__)
 router = APIRouter()
 
 
+# ============================================
+# Dependencies
+# ============================================
+async def get_current_user_dependency(
+    authorization: Optional[str] = Header(None),
+    db: AsyncSession = Depends(get_db_session),
+) -> UserModel:
+    """
+    Dependency to get current user from JWT token
+
+    Args:
+        authorization: Authorization header with Bearer token
+        db: Database session
+
+    Returns:
+        Current authenticated user
+
+    Raises:
+        AuthenticationException: If token is invalid or user not found
+    """
+    from backend.core.security import verify_access_token
+    from sqlalchemy import select
+
+    # Extract token
+    if not authorization:
+        raise AuthenticationException(message="Missing authorization header")
+
+    if not authorization.startswith("Bearer "):
+        raise AuthenticationException(message="Invalid authorization header format")
+
+    token = authorization.split(" ")[1]
+
+    # Verify token
+    payload = verify_access_token(token)
+
+    # Get user
+    result = await db.execute(
+        select(UserModel).where(UserModel.id == payload["sub"])
+    )
+    user = result.scalar_one_or_none()
+
+    if not user or not user.is_active:
+        raise AuthenticationException(message="Invalid token or user inactive")
+
+    return user
+
+
 @router.post("/login", response_model=TokenResponse)
 async def login(
     request: LoginRequest,
@@ -51,7 +100,7 @@ async def login(
     user = result.scalar_one_or_none()
 
     # Verify user exists and password is correct
-    if not user or not verify_password(request.password, user.password_hash):
+    if not user or not verify_password(request.password, user.hashed_password):
         logger.warning(f"Failed login attempt for email: {request.email}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -81,7 +130,7 @@ async def login(
         refresh_token=refresh_token,
         token_type="Bearer",
         expires_in=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60,
-        user=UserResponse.model_validate(user),
+        user=UserResponse.from_user_model(user),
     )
 
 
@@ -114,7 +163,7 @@ async def register(
     user = UserModel(
         id=uuid.uuid4(),
         email=request.email,
-        password_hash=get_password_hash(request.password),
+        hashed_password=get_password_hash(request.password),
         full_name=request.full_name,
         display_name=request.display_name,
         role=request.role,
@@ -138,7 +187,7 @@ async def register(
         refresh_token=refresh_token,
         token_type="Bearer",
         expires_in=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60,
-        user=UserResponse.model_validate(user),
+        user=UserResponse.from_user_model(user),
     )
 
 
@@ -176,7 +225,7 @@ async def refresh_token(
         refresh_token=new_refresh_token,
         token_type="Bearer",
         expires_in=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60,
-        user=UserResponse.model_validate(user),
+        user=UserResponse.from_user_model(user),
     )
 
 
@@ -198,34 +247,4 @@ async def get_current_user(
     """
     Get current authenticated user information
     """
-    return UserResponse.model_validate(current_user)
-
-
-# Dependency for getting current user
-async def get_current_user_dependency(
-    authorization: str = Depends(...),
-    db: AsyncSession = Depends(get_db_session),
-) -> UserModel:
-    """Dependency to get current user from JWT token"""
-    from backend.core.security import verify_access_token
-    from sqlalchemy import select
-
-    # Extract token
-    if not authorization.startswith("Bearer "):
-        raise AuthenticationException(message="Invalid authorization header")
-
-    token = authorization.split(" ")[1]
-
-    # Verify token
-    payload = verify_access_token(token)
-
-    # Get user
-    result = await db.execute(
-        select(UserModel).where(UserModel.id == payload["sub"])
-    )
-    user = result.scalar_one_or_none()
-
-    if not user or not user.is_active:
-        raise AuthenticationException(message="Invalid token")
-
-    return user
+    return UserResponse.from_user_model(current_user)

@@ -193,8 +193,9 @@ async def health_check():
     # Check dependencies (optional, can be slow)
     try:
         from backend.db.session import get_db_session
+        from sqlalchemy import text
         async for session in get_db_session():
-            await session.execute("SELECT 1")
+            await session.execute(text("SELECT 1"))
             health_status["services"] = health_status.get("services", {})
             health_status["services"]["postgres"] = "healthy"
             break

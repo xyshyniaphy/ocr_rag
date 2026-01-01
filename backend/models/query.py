@@ -4,6 +4,7 @@ Request/response schemas for query endpoints
 """
 
 from typing import List, Optional, Dict, Any
+
 from pydantic import BaseModel, Field
 
 from .document import SourceReference

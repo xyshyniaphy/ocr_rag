@@ -6,15 +6,12 @@ PostgreSQL connection and session handling
 from typing import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.orm import declarative_base
 
 from backend.core.config import settings
 from backend.core.logging import get_logger
+from backend.db.base import Base
 
 logger = get_logger(__name__)
-
-# SQLAlchemy Base
-Base = declarative_base()
 
 # Engine
 engine = None
@@ -41,8 +38,10 @@ async def init_db() -> None:
         expire_on_commit=False,
     )
 
-    # Import all models to ensure they're registered
-    from backend.models import user, document, chunk, query, permission
+    # Import all SQLAlchemy models to ensure they're registered with Base
+    from backend.db.models import User, Document, Query
+    from backend.models.chunk import Chunk
+    from backend.models.permission import Permission
 
     # Create tables (use Alembic for production migrations)
     if settings.ENVIRONMENT == "development":

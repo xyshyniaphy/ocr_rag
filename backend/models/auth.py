@@ -4,7 +4,7 @@ Request/response schemas for authentication endpoints
 """
 
 from typing import List, Optional
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_serializer
 
 
 class UserBase(BaseModel):
@@ -33,10 +33,35 @@ class UserResponse(UserBase):
     is_active: bool
     is_verified: bool
     created_at: str
-    last_login_at: Optional[str]
-    permissions: dict
+    last_login_at: Optional[str] = None
+    permissions: dict = Field(default_factory=dict)
 
-    model_config = {"from_attributes": True}
+    # Allow SQLAlchemy model to populate this response
+    model_config = {"from_attributes": True, "populate_by_name": True}
+
+    @field_serializer("user_id", mode="plain")
+    def serialize_user_id(self, value: Optional[str]) -> str:
+        """Serialize user_id from id field"""
+        if value is None:
+            # When loading from SQLAlchemy model, id becomes user_id
+            return str(getattr(self, "id", value))
+        return value
+
+    @classmethod
+    def from_user_model(cls, user) -> "UserResponse":
+        """Create UserResponse from SQLAlchemy User model"""
+        return cls(
+            user_id=str(user.id),
+            email=user.email,
+            full_name=user.full_name,
+            display_name=user.display_name,
+            role=user.role,
+            is_active=user.is_active,
+            is_verified=user.is_verified,
+            created_at=user.created_at.isoformat() if user.created_at else "",
+            last_login_at=user.last_login_at.isoformat() if user.last_login_at else None,
+            permissions={},
+        )
 
 
 class TokenResponse(BaseModel):

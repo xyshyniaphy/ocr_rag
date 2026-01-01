@@ -12,8 +12,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.core.logging import get_logger
 from backend.core.exceptions import NotFoundException, ValidationException
 from backend.db.session import get_db_session
-from backend.models.document import Document as DocumentModel
-from backend.models.auth import UserResponse, DocumentResponse, DocumentStatusResponse, DocumentListResponse
+from backend.db.models import Document as DocumentModel, User as UserModel
+from backend.models.auth import UserResponse
+from backend.models.document import DocumentResponse, DocumentStatusResponse, DocumentListResponse
 from backend.storage.client import upload_file, get_presigned_url, BUCKET_RAW_PDFS
 
 logger = get_logger(__name__)
@@ -35,7 +36,6 @@ async def upload_document(
     import hashlib
     import json
     from backend.core.config import settings
-    from backend.models.user import User as UserModel
 
     # Validate file type
     if file.content_type != "application/pdf":
@@ -223,7 +223,7 @@ async def list_documents(
     total = total_result.scalar()
 
     # Get documents
-    query = query.order_by(DocumentModel.uploaded_at.desc()).offset(offset).limit(limit)
+    query = query.order_by(DocumentModel.created_at.desc()).offset(offset).limit(limit)
     result = await db.execute(query)
     documents = result.scalars().all()
 

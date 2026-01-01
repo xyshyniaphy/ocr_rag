@@ -157,8 +157,15 @@ Key environment variables:
    - Return Pydantic models for responses
 
 2. **Models**:
-   - SQLAlchemy models in `backend/models/` (database tables)
-   - Pydantic models in `backend/models/` (request/response schemas)
+   - **SQLAlchemy models** (database tables):
+     - `backend/db/models.py` - User, Document, Query models
+     - `backend/models/chunk.py` - Chunk model
+     - `backend/models/permission.py` - Permission model
+   - **Pydantic models** (request/response schemas):
+     - `backend/models/user.py` - User request/response schemas
+     - `backend/models/document.py` - Document request/response schemas
+     - `backend/models/query.py` - Query request/response schemas
+   - All SQLAlchemy models use the shared `Base` from `backend.db.base`
 
 3. **Services**: Business logic in `backend/services/`
    - OCR engines in `services/ocr/`
@@ -232,6 +239,101 @@ Use `./dev.sh rebuild base` or `./dev.sh rebuild app` to rebuild images.
 - Reduce `EMBEDDING_BATCH_SIZE`
 - Use smaller LLM model (Q4_K_M quantization)
 - Add more GPUs
+
+## Database
+
+### Database Structure
+
+The system uses two databases:
+
+1. **PostgreSQL** (`rag_metadata`) - Relational database for:
+   - `users` - User accounts with authentication
+   - `documents` - Document metadata and status
+   - `chunks` - Text chunks with embeddings metadata
+   - `queries` - RAG query history and responses
+   - `permissions` - Document-level access control (ACL)
+
+2. **Milvus** (`document_chunks`) - Vector database for:
+   - 768-dimensional embeddings (Sarashina-Embedding-v1-1B)
+   - Semantic search with HNSW index
+   - Hybrid vector + keyword search support
+
+### Database Initialization
+
+Database tables are automatically created on first startup in development mode:
+
+```python
+# In backend/db/session.py
+async def init_db() -> None:
+    # Import all SQLAlchemy models
+    from backend.db.models import User, Document, Query
+    from backend.models.chunk import Chunk
+    from backend.models.permission import Permission
+
+    # Create tables in development mode
+    if settings.ENVIRONMENT == "development":
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+```
+
+**Important**: All SQLAlchemy models use the shared `Base` from `backend.db.base`:
+- `backend/db/models.py` - User, Document, Query models
+- `backend/models/chunk.py` - Chunk model
+- `backend/models/permission.py` - Permission model
+
+### Admin User
+
+The default admin user can be created using the seed script:
+
+```bash
+# From within the app container
+docker exec ocr-rag-app-dev python /app/scripts/seed_admin.py
+```
+
+**Admin credentials:**
+- Email: `admin@example.com`
+- Password: `admin123`
+- Role: `admin`
+
+The script:
+- Checks if admin user exists
+- Creates new admin user if not exists
+- Updates password if admin already exists
+- Uses bcrypt password hashing
+
+### Database Migrations
+
+For production, use Alembic for database migrations:
+
+```bash
+# Create migration
+alembic revision --autogenerate -m "description"
+
+# Apply migration
+alembic upgrade head
+
+# Rollback migration
+alembic downgrade -1
+```
+
+### Database Connection
+
+Database connection is managed in `backend/db/session.py`:
+
+```python
+# Connection string format
+postgresql+asyncpg://raguser:password@postgres:5432/rag_metadata
+
+# Session dependency injection
+async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
+    async with async_session_maker() as session:
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+```
 
 ## Security Notes
 

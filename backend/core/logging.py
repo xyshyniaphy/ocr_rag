@@ -57,15 +57,19 @@ def setup_logging() -> None:
             serialize=True,  # JSON output
         )
 
-    # Add file output
-    loguru_logger.add(
-        "/app/logs/app.log",
-        rotation="100 MB",
-        retention="7 days",
-        compression="zip",
-        level=settings.LOG_LEVEL,
-        serialize=True,
-    )
+    # Add file output (skip if permission error in containerized env)
+    try:
+        loguru_logger.add(
+            "/app/logs/app.log",
+            rotation="100 MB",
+            retention="7 days",
+            compression="zip",
+            level=settings.LOG_LEVEL,
+            serialize=True,
+        )
+    except (PermissionError, OSError):
+        # Skip file logging if we can't write to the log directory
+        pass
 
     # Intercept standard logging
     logging.basicConfig(handlers=[InterceptHandler()], level=0, force=True)

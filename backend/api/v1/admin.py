@@ -10,9 +10,9 @@ from sqlalchemy import select, func
 from backend.core.logging import get_logger
 from backend.core.config import settings
 from backend.db.session import get_db_session
-from backend.models.user import User as UserModel
+from backend.db.models import User as UserModel
 from backend.models.document import Document as DocumentModel
-from backend.models.query import Query as QueryModel
+from backend.db.models import Query as QueryModel
 
 logger = get_logger(__name__)
 router = APIRouter()
