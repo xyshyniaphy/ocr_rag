@@ -16,7 +16,8 @@ help:
 	@echo "  make shell        - Open shell in app container"
 	@echo ""
 	@echo "Testing:"
-	@echo "  make test         - Run tests"
+	@echo "  make test         - Run all tests"
+	@echo "  make test-ocr     - Run OCR service test"
 	@echo "  make lint         - Run linting"
 	@echo "  make format       - Format code"
 	@echo ""
@@ -64,6 +65,11 @@ shell:
 # Run tests
 test:
 	docker-compose -f docker-compose.dev.yml exec app pytest tests/ -v
+
+# Run OCR service test
+test-ocr:
+	@echo "Running OCR service test..."
+	./test_ocr.sh
 
 # Lint code
 lint:
