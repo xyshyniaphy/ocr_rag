@@ -27,7 +27,7 @@ ocr_rag/
 │   ├── api/                       # API documentation (OpenAPI/Swagger)
 │   └── guides/                    # User guides
 │
-├── app/                           # Main application code
+├── backend/                       # Main application code
 │   ├── __init__.py
 │   ├── main.py                    # FastAPI application entry point
 │   │
@@ -62,6 +62,8 @@ ocr_rag/
 │   │   ├── document.py            # Document models
 │   │   ├── query.py               # Query models
 │   │   ├── user.py                # User models
+│   │   ├── chunk.py               # Chunk models
+│   │   ├── permission.py          # Permission models
 │   │   └── common.py              # Shared models
 │   │
 │   ├── services/                  # Business logic services
@@ -229,7 +231,7 @@ ocr_rag/
 
 ### 2.1 Application Entry Point
 
-**`app/main.py`** - FastAPI application setup:
+**`backend/main.py`** - FastAPI application setup:
 
 ```python
 from fastapi import FastAPI
@@ -237,11 +239,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from contextlib import asynccontextmanager
 
-from app.core.config import settings
-from app.core.logging import setup_logging
-from app.api.v1 import auth, documents, query, admin, stream
-from app.db.session import init_db, close_db
-from app.db.vector.client import init_milvus, close_milvus
+from backend.core.config import settings
+from backend.core.logging import setup_logging
+from backend.api.v1 import auth, documents, query, admin, stream
+from backend.db.session import init_db, close_db
+from backend.db.vector.client import init_milvus, close_milvus
 
 
 @asynccontextmanager
@@ -292,7 +294,7 @@ async def health_check():
 
 ### 2.2 Configuration Module
 
-**`app/core/config.py`** - Configuration management:
+**`backend/core/config.py`** - Configuration management:
 
 ```python
 from pydantic_settings import BaseSettings
@@ -416,7 +418,7 @@ settings = Settings()
 **Base Service Interface:**
 
 ```python
-# app/services/ocr/base.py
+# backend/services/ocr/base.py
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Tuple
 from pathlib import Path
@@ -462,7 +464,7 @@ class BaseOCREngine(ABC):
 **YomiToku Implementation:**
 
 ```python
-# app/services/ocr/yomitoku.py
+# backend/services/ocr/yomitoku.py
 from .base import BaseOCREngine, OCRResult
 from pathlib import Path
 import asyncio
@@ -537,7 +539,7 @@ class YomiTokuOCREngine(BaseOCREngine):
 **Base Repository:**
 
 ```python
-# app/db/repositories/base.py
+# backend/db/repositories/base.py
 from typing import Generic, TypeVar, Type, Optional, List
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, delete
@@ -597,14 +599,14 @@ class BaseRepository(Generic[ModelType]):
 **Document Repository:**
 
 ```python
-# app/db/repositories/document_repo.py
+# backend/db/repositories/document_repo.py
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from typing import List, Optional
 from datetime import datetime
 
-from app.db.base import Base
-from app.models.document import Document
+from backend.db.base import Base
+from backend.models.document import Document
 from .base import BaseRepository
 
 
@@ -670,13 +672,13 @@ class DocumentRepository(BaseRepository[Document]):
 
 ### 3.1 Absolute Imports
 
-Use absolute imports from the `app` package:
+Use absolute imports from the `backend` package:
 
 ```python
 # ✅ Good
-from app.services.auth_service import AuthService
-from app.models.user import UserCreate
-from app.db.repositories.user_repo import UserRepository
+from backend.services.auth_service import AuthService
+from backend.models.user import UserCreate
+from backend.db.repositories.user_repo import UserRepository
 
 # ❌ Avoid relative imports
 from ..services.auth_service import AuthService
@@ -700,9 +702,9 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # 3. Application imports
-from app.core.config import settings
-from app.models.user import User
-from app.db.repositories.user_repo import UserRepository
+from backend.core.config import settings
+from backend.models.user import User
+from backend.db.repositories.user_repo import UserRepository
 ```
 
 ---

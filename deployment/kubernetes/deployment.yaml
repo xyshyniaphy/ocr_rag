@@ -1,0 +1,91 @@
+# Kubernetes Deployment Manifest
+# Example deployment configuration for production
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ocr-rag
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ocr-rag-app
+  namespace: ocr-rag
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ocr-rag
+  template:
+    metadata:
+      labels:
+        app: ocr-rag
+    spec:
+      containers:
+      - name: app
+        image: ocr-rag/app:latest
+        ports:
+        - containerPort: 8000
+          name: http
+        - containerPort: 8501
+          name: streamlit
+        env:
+        - name: ENVIRONMENT
+          value: "production"
+        - name: DEBUG
+          value: "false"
+        envFrom:
+        - secretRef:
+            name: ocr-rag-secrets
+        - configMapRef:
+            name: ocr-rag-config
+        resources:
+          requests:
+            memory: "8Gi"
+            cpu: "4"
+            nvidia.com/gpu: "1"
+          limits:
+            memory: "16Gi"
+            cpu: "8"
+            nvidia.com/gpu: "1"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 5
+        volumeMounts:
+        - name: data
+          mountPath: /app/data
+        - name: logs
+          mountPath: /app/logs
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: ocr-rag-data
+      - name: logs
+        persistentVolumeClaim:
+          claimName: ocr-rag-logs
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ocr-rag-service
+  namespace: ocr-rag
+spec:
+  selector:
+    app: ocr-rag
+  ports:
+  - name: http
+    port: 8000
+    targetPort: 8000
+  - name: streamlit
+    port: 8501
+    targetPort: 8501
+  type: LoadBalancer

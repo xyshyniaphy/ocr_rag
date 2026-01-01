@@ -1,0 +1,431 @@
+# Docker Compose - Production Environment
+# This file is for production deployment with optimized settings
+
+version: '3.8'
+
+services:
+  # ============================================
+  # MAIN APPLICATION (FastAPI + Streamlit)
+  # ============================================
+  app:
+    image: ${REGISTRY:-ocr-rag}/app:${TAG:-latest}
+    container_name: ocr-rag-app-prd
+    hostname: app
+    restart: always
+    ports:
+      - "8000:8000"
+      - "8501:8501"
+    environment:
+      # Application (from .env or secrets)
+      - APP_NAME=${APP_NAME:-Japanese OCR RAG System}
+      - DEBUG=false
+      - ENVIRONMENT=production
+      - SECRET_KEY=${SECRET_KEY}
+      - JWT_ACCESS_TOKEN_EXPIRE_MINUTES=15
+      - JWT_REFRESH_TOKEN_EXPIRE_DAYS=7
+
+      # Database
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=rag_metadata
+
+      # Milvus
+      - MILVUS_HOST=milvus
+      - MILVUS_PORT=19530
+
+      # MinIO
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
+      - MINIO_USE_SSL=true
+
+      # Redis
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+
+      # Celery
+      - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD}@redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD}@redis:6379/2
+
+      # Ollama
+      - OLLAMA_HOST=ollama:11434
+      - OLLAMA_MODEL=qwen2.5:14b-instruct-q4_K_M
+
+      # OCR
+      - OCR_ENGINE=yomitoku
+      - OCR_CONFIDENCE_THRESHOLD=0.85
+      - OCR_FALLBACK_THRESHOLD=0.80
+
+      # Embedding
+      - EMBEDDING_MODEL=sbintuitions/sarashina-embedding-v1-1b
+      - EMBEDDING_DEVICE=cuda:0
+      - EMBEDDING_BATCH_SIZE=64
+
+      # GPU
+      - CUDA_VISIBLE_DEVICES=0
+
+      # Monitoring
+      - ENABLE_METRICS=true
+      - PROMETHEUS_PORT=9100
+      - ENABLE_TRACING=true
+
+      # Logging
+      - LOG_LEVEL=INFO
+
+    volumes:
+      - app_data:/app/data
+      - app_logs:/app/logs:ro
+      - models_cache:/app/models
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      milvus:
+        condition: service_healthy
+      minio:
+        condition: service_started
+      redis:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+
+    deploy:
+      resources:
+        limits:
+          memory: 16G
+        reservations:
+          memory: 8G
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    networks:
+      - ocr-rag-net
+
+  # ============================================
+  # POSTGRESQL (Metadata Database)
+  # ============================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: ocr-rag-postgres-prd
+    hostname: postgres
+    restart: always
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=rag_metadata
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - PGDATA=/var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data_prd:/var/lib/postgresql/data
+      - ./scripts/init_db.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      - postgres_backup:/backup
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d rag_metadata"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 2G
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - ocr-rag-net
+
+  # ============================================
+  # MILVUS (Vector Database)
+  # ============================================
+  milvus:
+    image: milvusdb/milvus:v2.4.0-gpu
+    container_name: ocr-rag-milvus-prd
+    hostname: milvus
+    restart: always
+    ports:
+      - "19530:19530"
+      - "9091:9091"
+    environment:
+      - ETCD_ENDPOINTS=etcd:2379
+      - MINIO_ADDRESS=minio:9000
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
+    volumes:
+      - milvus_data_prd:/var/lib/milvus
+    depends_on:
+      - etcd
+      - minio
+    deploy:
+      resources:
+        limits:
+          memory: 16G
+        reservations:
+          memory: 8G
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/metrics"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - ocr-rag-net
+
+  # ============================================
+  # ETCD (Required by Milvus)
+  # ============================================
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.9
+    container_name: ocr-rag-etcd-prd
+    hostname: etcd
+    restart: always
+    environment:
+      - ETCD_AUTO_COMPACTION_MODE=revision
+      - ETCD_AUTO_COMPACTION_RETENTION=1000
+      - ETCD_QUOTA_BACKEND_BYTES=8589934592
+      - ETCD_SNAPSHOT_COUNT=100000
+    volumes:
+      - etcd_data_prd:/etcd
+    command: etcd -advertise-client-urls=http://127.0.0.1:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 1G
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - ocr-rag-net
+
+  # ============================================
+  # MINIO (Object Storage)
+  # ============================================
+  minio:
+    image: minio/minio:latest
+    container_name: ocr-rag-minio-prd
+    hostname: minio
+    restart: always
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ACCESS_KEY}
+      - MINIO_ROOT_PASSWORD=${MINIO_SECRET_KEY}
+    volumes:
+      - minio_data_prd:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 2G
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - ocr-rag-net
+
+  # ============================================
+  # REDIS (Cache & Message Broker)
+  # ============================================
+  redis:
+    image: redis:7-alpine
+    container_name: ocr-rag-redis-prd
+    hostname: redis
+    restart: always
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-}
+    volumes:
+      - redis_data_prd:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 1G
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - ocr-rag-net
+
+  # ============================================
+  # OLLAMA (LLM Server)
+  # ============================================
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ocr-rag-ollama-prd
+    hostname: ollama
+    restart: always
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_models_prd:/root/.ollama
+    environment:
+      - OLLAMA_KEEP_ALIVE=24h
+      - OLLAMA_NUM_PARALLEL=2
+    deploy:
+      resources:
+        limits:
+          memory: 24G
+        reservations:
+          memory: 16G
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - ocr-rag-net
+
+  # ============================================
+  # PROMETHEUS (Monitoring)
+  # ============================================
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: ocr-rag-prometheus-prd
+    hostname: prometheus
+    restart: always
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data_prd:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 1G
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - ocr-rag-net
+
+  # ============================================
+  # GRAFANA (Visualization)
+  # ============================================
+  grafana:
+    image: grafana/grafana:latest
+    container_name: ocr-rag-grafana-prd
+    hostname: grafana
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
+      - GF_INSTALL_PLUGINS=redis-datasource
+      - GF_SERVER_ROOT_URL=https://grafana.example.com
+    volumes:
+      - grafana_data_prd:/var/lib/grafana
+      - ./config/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./config/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    depends_on:
+      - prometheus
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 512M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - ocr-rag-net
+
+networks:
+  ocr-rag-net:
+    driver: bridge
+    name: ocr-rag-net-prd
+
+volumes:
+  postgres_data_prd:
+    name: ocr-rag-postgres-data-prd
+  postgres_backup:
+    name: ocr-rag-postgres-backup-prd
+  milvus_data_prd:
+    name: ocr-rag-milvus-data-prd
+  etcd_data_prd:
+    name: ocr-rag-etcd-data-prd
+  minio_data_prd:
+    name: ocr-rag-minio-data-prd
+  redis_data_prd:
+    name: ocr-rag-redis-data-prd
+  ollama_models_prd:
+    name: ocr-rag-ollama-models-prd
+  prometheus_data_prd:
+    name: ocr-rag-prometheus-data-prd
+  grafana_data_prd:
+    name: ocr-rag-grafana-data-prd
+  app_data:
+    name: ocr-rag-app-data-prd
+  app_logs:
+    name: ocr-rag-app-logs-prd
+  models_cache:
+    name: ocr-rag-models-cache-prd

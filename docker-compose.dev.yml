@@ -1,0 +1,349 @@
+# Docker Compose - Development Environment
+# This file is for local development with hot-reload and debugging enabled
+
+version: '3.8'
+
+services:
+  # ============================================
+  # MAIN APPLICATION (FastAPI + Streamlit)
+  # ============================================
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.app
+    image: ocr-rag-app:dev
+    container_name: ocr-rag-app-dev
+    hostname: app
+    restart: unless-stopped
+    ports:
+      - "8000:8000"  # FastAPI
+      - "8501:8501"  # Streamlit
+      - "9100:9100"  # Flower (Celery monitoring)
+    environment:
+      # Application
+      - APP_NAME=Japanese OCR RAG System
+      - DEBUG=true
+      - ENVIRONMENT=development
+
+      # Security
+      - SECRET_KEY=dev-secret-key-change-in-production-12345
+      - JWT_ACCESS_TOKEN_EXPIRE_MINUTES=60
+      - JWT_REFRESH_TOKEN_EXPIRE_DAYS=30
+
+      # Database
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=raguser
+      - POSTGRES_PASSWORD=rag_password_dev
+      - POSTGRES_DB=rag_metadata
+
+      # Milvus
+      - MILVUS_HOST=milvus
+      - MILVUS_PORT=19530
+
+      # MinIO
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin
+      - MINIO_USE_SSL=false
+
+      # Redis
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=
+
+      # Celery
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+
+      # Ollama
+      - OLLAMA_HOST=ollama:11434
+      - OLLAMA_MODEL=qwen2.5:14b-instruct-q4_K_M
+
+      # OCR
+      - OCR_ENGINE=yomitoku
+      - OCR_CONFIDENCE_THRESHOLD=0.85
+
+      # Embedding
+      - EMBEDDING_MODEL=sbintuitions/sarashina-embedding-v1-1b
+      - EMBEDDING_DEVICE=cuda:0
+      - EMBEDDING_BATCH_SIZE=64
+
+      # GPU
+      - CUDA_VISIBLE_DEVICES=0
+
+    volumes:
+      # Mount application code for hot-reload (development)
+      - ./backend:/app/backend:ro
+      - ./frontend:/app/frontend:ro
+      # Data and logs
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./models:/app/models:rw
+      # Override entrypoint for development
+      - ./deployment/docker/entrypoint-dev.sh:/app/entrypoint.sh:ro
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      milvus:
+        condition: service_healthy
+      minio:
+        condition: service_started
+      redis:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    networks:
+      - ocr-rag-net
+
+  # ============================================
+  # POSTGRESQL (Metadata Database)
+  # ============================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: ocr-rag-postgres-dev
+    hostname: postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=rag_metadata
+      - POSTGRES_USER=raguser
+      - POSTGRES_PASSWORD=rag_password_dev
+      - PGDATA=/var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data_dev:/var/lib/postgresql/data
+      - ./scripts/init_db.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U raguser -d rag_metadata"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ocr-rag-net
+
+  # ============================================
+  # MILVUS (Vector Database)
+  # ============================================
+  milvus:
+    image: milvusdb/milvus:v2.4.0-gpu
+    container_name: ocr-rag-milvus-dev
+    hostname: milvus
+    restart: unless-stopped
+    ports:
+      - "19530:19530"  # gRPC
+      - "9091:9091"    # Metrics
+    environment:
+      - ETCD_ENDPOINTS=etcd:2379
+      - MINIO_ADDRESS=minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin
+    volumes:
+      - milvus_data_dev:/var/lib/milvus
+    depends_on:
+      - etcd
+      - minio
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/metrics"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - ocr-rag-net
+
+  # ============================================
+  # ETCD (Required by Milvus)
+  # ============================================
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.9
+    container_name: ocr-rag-etcd-dev
+    hostname: etcd
+    restart: unless-stopped
+    environment:
+      - ETCD_AUTO_COMPACTION_MODE=revision
+      - ETCD_AUTO_COMPACTION_RETENTION=1000
+      - ETCD_QUOTA_BACKEND_BYTES=4294967296
+      - ETCD_SNAPSHOT_COUNT=50000
+    volumes:
+      - etcd_data_dev:/etcd
+    command: etcd -advertise-client-urls=http://127.0.0.1:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
+    networks:
+      - ocr-rag-net
+
+  # ============================================
+  # MINIO (Object Storage)
+  # ============================================
+  minio:
+    image: minio/minio:latest
+    container_name: ocr-rag-minio-dev
+    hostname: minio
+    restart: unless-stopped
+    ports:
+      - "9000:9000"  # API
+      - "9001:9001"  # Console
+    environment:
+      - MINIO_ROOT_USER=minioadmin
+      - MINIO_ROOT_PASSWORD=minioadmin
+    volumes:
+      - minio_data_dev:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - ocr-rag-net
+
+  # ============================================
+  # REDIS (Cache & Message Broker)
+  # ============================================
+  redis:
+    image: redis:7-alpine
+    container_name: ocr-rag-redis-dev
+    hostname: redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data_dev:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - ocr-rag-net
+
+  # ============================================
+  # OLLAMA (LLM Server)
+  # ============================================
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ocr-rag-ollama-dev
+    hostname: ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_models_dev:/root/.ollama
+    environment:
+      - OLLAMA_KEEP_ALIVE=1h
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    networks:
+      - ocr-rag-net
+
+  # ============================================
+  # PGADMIN (PostgreSQL Management - Optional)
+  # ============================================
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: ocr-rag-pgadmin-dev
+    hostname: pgadmin
+    restart: unless-stopped
+    ports:
+      - "5050:80"
+    environment:
+      - PGADMIN_DEFAULT_EMAIL=admin@example.com
+      - PGADMIN_DEFAULT_PASSWORD=admin
+      - PGADMIN_CONFIG_SERVER_MODE=False
+    volumes:
+      - pgadmin_data_dev:/var/lib/pgadmin
+    networks:
+      - ocr-rag-net
+    profiles:
+      - tools
+
+  # ============================================
+  # PROMETHEUS (Monitoring - Optional)
+  # ============================================
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: ocr-rag-prometheus-dev
+    hostname: prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data_dev:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    networks:
+      - ocr-rag-net
+    profiles:
+      - monitoring
+
+  # ============================================
+  # GRAFANA (Visualization - Optional)
+  # ============================================
+  grafana:
+    image: grafana/grafana:latest
+    container_name: ocr-rag-grafana-dev
+    hostname: grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana_data_dev:/var/lib/grafana
+      - ./config/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./config/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    depends_on:
+      - prometheus
+    networks:
+      - ocr-rag-net
+    profiles:
+      - monitoring
+
+networks:
+  ocr-rag-net:
+    driver: bridge
+    name: ocr-rag-net-dev
+
+volumes:
+  postgres_data_dev:
+    name: ocr-rag-postgres-data-dev
+  milvus_data_dev:
+    name: ocr-rag-milvus-data-dev
+  etcd_data_dev:
+    name: ocr-rag-etcd-data-dev
+  minio_data_dev:
+    name: ocr-rag-minio-data-dev
+  redis_data_dev:
+    name: ocr-rag-redis-data-dev
+  ollama_models_dev:
+    name: ocr-rag-ollama-models-dev
+  pgadmin_data_dev:
+    name: ocr-rag-pgadmin-data-dev
+  prometheus_data_dev:
+    name: ocr-rag-prometheus-data-dev
+  grafana_data_dev:
+    name: ocr-rag-grafana-data-dev

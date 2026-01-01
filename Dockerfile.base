@@ -1,0 +1,139 @@
+# ========================================
+# Stage 1: Builder
+# Installs Python dependencies into a virtual environment
+# ========================================
+FROM nvidia/cuda:12.9.1-runtime-ubuntu24.04 AS builder
+
+# Prevent interactive prompts during package installation
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    UV_CACHE_DIR=/tmp/uv-cache \
+    UV_HTTP_TIMEOUT=600
+
+# Install build dependencies (needed for compiling Python packages)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    gcc \
+    g++ \
+    gfortran \
+    make \
+    cmake \
+    pkg-config \
+    libopenblas-dev \
+    liblapack-dev \
+    curl \
+    git \
+    python3.12 \
+    python3.12-dev \
+    python3.12-venv \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install uv (fast Python package installer)
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh && \
+    mv /root/.local/bin/uv /usr/local/bin/uv
+
+# Set working directory
+WORKDIR /app
+
+# Create virtual environment with Python 3.12 (for PyTorch compatibility)
+RUN uv venv --python 3.12 /app/.venv
+
+# Enable venv in PATH
+ENV PATH="/app/.venv/bin:$PATH"
+
+# Install Python dependencies using uv (no cache)
+COPY requirements-base.txt /app/
+RUN uv pip install --no-cache-dir --index-strategy unsafe-best-match -r requirements-base.txt
+
+
+# ========================================
+# Stage 2: Base
+# Final runtime image with venv copied from builder
+# ========================================
+FROM nvidia/cuda:12.9.1-runtime-ubuntu24.04 AS base
+
+# Prevent interactive prompts during package installation
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    CUDA_HOME=/usr/local/cuda \
+    PATH="/usr/local/cuda/bin:/app/.venv/bin:$PATH" \
+    LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
+
+# Install ONLY runtime dependencies (no build tools)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    # Image processing runtime libraries
+    libpoppler-cpp-dev \
+    libgl1 \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    libgomp1 \
+    # OCR runtime
+    tesseract-ocr \
+    tesseract-ocr-jpn \
+    tesseract-ocr-jpn-vert \
+    poppler-utils \
+    # Python runtime (needed for venv to work)
+    python3.12 \
+    python3.12-venv \
+    # Runtime libraries for compiled packages
+    libopenblas0 \
+    liblapack3 \
+    # Git for model download
+    git \
+    # Utilities
+    wget \
+    vim \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set working directory
+WORKDIR /app
+
+# Create directory structure
+RUN mkdir -p /app/models /app/data /app/logs /app/tmp
+
+# Copy virtual environment from builder stage
+COPY --from=builder /app/.venv /app/.venv
+
+# Download and cache models in the image
+RUN mkdir -p /app/models/sarashina /app/models/yomitoku /app/models/paddleocr
+
+# Setup Sarashina Embedding Model (Japanese embeddings) - download into image
+RUN cd /app/models/sarashina && \
+    git clone https://huggingface.co/sbintuitions/sarashina-embedding-v1-1b . && \
+    ls -la
+
+# Create non-root user for running the application
+RUN id -u appuser 2>/dev/null || useradd -m -u 1001 appuser && \
+    chown -R appuser:appuser /app
+
+# Set labels
+LABEL maintainer="OCR RAG Team" \
+      description="Base image for Japanese OCR RAG System with CUDA 12.9.1 (no cuDNN)" \
+      cuda.version="12.9.1" \
+      python.version="3.12.x (system)" \
+      pytorch.version="2.7.1" \
+      pytorch.cuda="12.8 (backward compatible)" \
+      paddlepaddle.version="2.6.2" \
+      version="1.0.0"
+
+# Switch to non-root user
+USER appuser
+
+# Set default environment variables
+ENV PYTHONPATH="/app" \
+    UV_CACHE_DIR=/tmp/uv-cache
+
+# Expose default ports
+EXPOSE 8000 8501
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# Set default command (can be overridden)
+CMD ["/bin/bash"]

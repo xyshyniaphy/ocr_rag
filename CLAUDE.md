@@ -6,81 +6,166 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is a **Japanese OCR RAG System** - a production-grade Retrieval-Augmented Generation system optimized for Japanese PDF document processing. The system is privacy-first (air-gapped deployment supported) and designed for legal, financial, academic, and enterprise document analysis.
 
-## High-Level Architecture
+## Directory Structure
 
-The system consists of **3 parallel processing pipelines**:
+```
+ocr_rag/
+├── backend/                   # Python Backend (FastAPI)
+│   ├── main.py               # FastAPI application entry point
+│   ├── core/                  # Configuration, logging, security
+│   ├── models/                # SQLAlchemy & Pydantic models
+│   ├── api/                   # REST API routes
+│   │   └── v1/               # API v1 endpoints
+│   ├── db/                    # Database (PostgreSQL + Milvus)
+│   │   ├── repositories/     # Repository pattern
+│   │   └── vector/           # Vector database client
+│   ├── storage/              # MinIO object storage client
+│   ├── services/             # Business logic
+│   │   ├── ocr/             # OCR processing (YomiToku, PaddleOCR)
+│   │   ├── embedding/       # Embedding generation (Sarashina)
+│   │   ├── retrieval/       # Vector + Keyword search
+│   │   ├── llm/            # LLM generation (Qwen via Ollama)
+│   │   └── rag/            # RAG orchestration
+│   ├── tasks/                # Celery background tasks
+│   └── utils/                # Utility functions
+│
+├── frontend/                  # Streamlit Admin UI
+│   └── app.py                # Streamlit application
+│
+├── Dockerfile.base            # Base image (ML models, dependencies)
+├── Dockerfile.app             # Application image (lightweight)
+├── docker-compose.dev.yml     # Development environment
+├── docker-compose.prd.yml     # Production environment
+├── requirements-base.txt      # Base ML dependencies
+└── requirements-app.txt       # Application dependencies
+```
 
-1. **OCR Pipeline**: Extracts text from Japanese PDFs using YomiToku (primary) with PaddleOCR-VL fallback
-2. **Embedding Pipeline**: Generates 768D vectors using Sarashina-Embedding-v1-1B with Llama-3.2-NV-RerankQA-1B-v2 reranking
-3. **LLM Generation Pipeline**: Qwen2.5-14B (via Ollama) generates Japanese responses with citations
+## Quick Start
 
-**Storage Layer**:
-- Milvus 2.4+ (Vector DB, 768D embeddings, IVF_FLAT index)
-- PostgreSQL 16+ (Metadata DB: documents, chunks, queries)
-- MinIO (Object storage for raw PDFs, OCR outputs, thumbnails)
+```bash
+# Development
+make dev          # Start development environment
+make logs         # View logs
+make shell        # Open shell in container
 
-**Application Layer**:
-- LangChain RAG Pipeline (orchestration)
-- FastAPI (REST API)
-- Streamlit (Admin UI)
+# Production
+make prod         # Start production environment
+```
 
-## Data Flow
+## Access Points
 
-**Document Ingestion**: `PDF Upload → OCR → Markdown → Chunking → Embedding → Milvus → Metadata Index`
+| Service | URL |
+|---------|-----|
+| FastAPI Backend | http://localhost:8000 |
+| API Docs | http://localhost:8000/docs |
+| Streamlit Admin UI | http://localhost:8501 |
+| WebSocket | ws://localhost:8000/api/v1/stream/ws |
+| MinIO Console | http://localhost:9001 |
+| Prometheus | http://localhost:9090 |
+| Grafana | http://localhost:3000 |
+| Flower (Celery) | http://localhost:9100 |
 
-**Query Processing**: `User Query → Hybrid Search (Vector + BM25) → Reranking (Top 20→5) → Context Assembly → LLM → Citation Injection`
+## Default Credentials
 
-## Technology Stack
+| Service | Username | Password |
+|----------|----------|----------|
+| Admin User | admin@example.com | admin123 |
+| MinIO | minioadmin | minioadmin |
+
+## Architecture
+
+### High-Level Flow
+
+**Document Ingestion:**
+```
+PDF Upload → Validation → OCR (YomiToku) → Markdown → Chunking
+→ Embedding (Sarashina) → Milvus → PostgreSQL → Complete
+```
+
+**Query Processing:**
+```
+User Query → Embedding → Hybrid Search (Milvus + PostgreSQL BM25)
+→ Reranking (Llama-3.2-NV) → Context Assembly → LLM (Qwen)
+→ Response with Sources
+```
+
+### Technology Stack
 
 | Component | Technology |
 |-----------|------------|
-| OCR | YomiToku (primary), PaddleOCR-VL (fallback) |
-| Embedding | sbintuitions/sarashina-embedding-v1-1b (768D) |
-| Reranker | nvidia/llama-3.2-nv-rerankqa-1b-v2 |
-| LLM | Qwen/Qwen2.5-14B-Instruct (Ollama) |
-| Vector DB | Milvus 2.4+ (IVF_FLAT, nlist=1024, nprobe=128) |
+| Backend Framework | FastAPI |
+| Frontend Framework | Streamlit |
+| OCR (Primary) | YomiToku |
+| OCR (Fallback) | PaddleOCR-VL |
+| Embedding | Sarashina-Embedding-v1-1B (768D) |
+| Reranker | Llama-3.2-NV-RerankQA-1B-v2 |
+| LLM | Qwen2.5-14B (Ollama) |
+| Vector DB | Milvus 2.4+ |
 | Metadata DB | PostgreSQL 16+ |
 | Object Storage | MinIO |
-| Backend | FastAPI + LangChain |
-| Frontend | Streamlit |
-| Container | Docker Compose / Kubernetes |
+| Cache | Redis |
+| Task Queue | Celery |
 
-## Key Configuration Parameters
+## Configuration
 
-**Chunking** (LangChain RecursiveCharacterTextSplitter):
-- chunk_size: 512 characters
-- chunk_overlap: 50
-- Japanese separators: `\n\n`, `\n`, `。`, `！`, `？`, `；`, `、`
+All configuration is managed through:
+- **Environment variables** (`.env` file)
+- **`backend/core/config.py`** - Settings class with validation
 
-**Japanese Text Normalization**:
-- Unicode NFKC normalization
-- Half-width → Full-width Katakana conversion
-- Space insertion between Kanji and Latin characters
+Key environment variables:
+- `SECRET_KEY` - JWT signing key (generate with `openssl rand -hex 32`)
+- `POSTGRES_PASSWORD` - PostgreSQL password
+- `OLLAMA_HOST` - Ollama LLM server address
+- `OCR_ENGINE` - OCR engine selection (`yomitoku` or `paddleocr`)
 
-**OCR Quality Assurance**:
-- Pre-processing: Deskew, noise reduction, CLAHE, Otsu binarization
-- Post-processing: Character normalization, table structure validation
-- Confidence threshold: 0.85 (retry), 0.80 (fallback to PaddleOCR)
+## Module Import Conventions
 
-**Milvus Search**:
-- Initial retrieval: Top 20 (IVF_FLAT, nprobe=128)
-- Hybrid search: 70% semantic + 30% BM25 keyword
-- Reranker: Top 20 → Top 5 (score threshold 0.65)
+- **Backend code**: Use absolute imports from `backend` package
+  ```python
+  from backend.core.config import settings
+  from backend.db.session import get_db_session
+  from backend.api.v1 import auth, documents
+  ```
 
-## Hardware Requirements
+- **Uvicorn command**: Use `backend.main:app` module path
+  ```bash
+  uvicorn backend.main:app --reload
+  ```
 
-**Development**: RTX 3060 Ti (8GB VRAM), 32GB RAM, Ubuntu 22.04 LTS
+## Code Structure Guidelines
 
-**Production (Small)**: RTX 4090 (24GB VRAM), 64GB RAM, 2TB NVMe SSD
+1. **API Routes**: Place in `backend/api/v1/`
+   - Follow FastAPI routing patterns
+   - Use dependency injection for database sessions
+   - Return Pydantic models for responses
 
-**Production (Enterprise)**: Multi-node with dedicated OCR/Embedding/LLM/Storage nodes
+2. **Models**:
+   - SQLAlchemy models in `backend/models/` (database tables)
+   - Pydantic models in `backend/models/` (request/response schemas)
 
-## API Endpoints
+3. **Services**: Business logic in `backend/services/`
+   - OCR engines in `services/ocr/`
+   - Embedding in `services/embedding/`
+   - RAG pipeline in `services/rag/`
 
-- `POST /api/v1/documents/upload` - Upload PDF (max 50MB)
-- `POST /api/v1/query` - Query RAG system
-- `GET /api/v1/documents/{document_id}/status` - Get processing status
-- `GET /api/v1/documents/search` - Search documents
+4. **Database Access**: Use Repository pattern
+   - Repositories in `backend/db/repositories/`
+   - Vector DB client in `backend/db/vector/`
+
+## Japanese Language Handling
+
+- **Text Normalization**: Use Unicode NFKC normalization
+- **Chunking Separators**: `["\n\n", "\n", "。", "！", "？", "；", "、"]`
+- **Chunk Size**: 512 characters (Japanese chars ≈ 0.5 tokens)
+- **Overlap**: 50 characters
+
+## GPU Resource Management
+
+Single GPU (RTX 4090 24GB) allocation:
+- OCR (YomiToku): 40% VRAM (~9.6GB)
+- Embedding (Sarashina): 30% VRAM (~7.2GB)
+- Reranker: 10% VRAM (~2.4GB)
+- LLM (Qwen): 20% VRAM (~4.8GB)
 
 ## Performance Targets
 
@@ -91,45 +176,46 @@ The system consists of **3 parallel processing pipelines**:
 | Embedding | <50ms/chunk | 200ms/chunk |
 | Vector Search | <100ms | 500ms |
 
-## Privacy & Security
+## Docker Multi-Stage Build
 
-- All processing local (no external API calls to OpenAI/Claude)
-- AES-256-GCM encryption at rest
-- TLS 1.3 in transit
-- OAuth 2.0 + JWT authentication
-- RBAC (Admin, Power User, User, Viewer)
-- Japanese APPI compliant (PII detection, right to deletion)
+The project uses a multi-stage Docker build:
 
-## Development Notes
+1. **Base Image** (`Dockerfile.base`):
+   - Contains ML models (Sarashina, YomiToku, PaddleOCR)
+   - Heavy dependencies (PyTorch, Transformers)
+   - Cached and rebuilt infrequently
 
-### Japanese Language Handling
-- Primary language is Japanese (日本語)
-- Use Japanese-specific separators for text chunking
-- Apply Unicode NFKC normalization before processing
-- Preserve vertical text (縦書き) layout in OCR
+2. **App Image** (`Dockerfile.app`):
+   - Application code (`backend/`, `frontend/`)
+   - Lightweight dependencies (FastAPI, Streamlit)
+   - Rebuilt on code changes
 
-### OCR Fallback Logic
-1. Try YomiToku (Japanese-specialized)
-2. If confidence <0.80 or multi-language >20%: fallback to PaddleOCR-VL
-3. Log low-confidence regions for manual review
+## Development Workflow
 
-### Vector Index Management
-- Milvus collection schema includes: chunk_id, embedding (768D), text_content, document_id, page_number, chunk_index, metadata (JSON)
-- Enable dynamic fields for custom metadata
-- Use IVF_FLAT index for balance between speed and accuracy
+1. **Make changes to code** in `backend/` or `frontend/`
+2. **Restart containers**: `make down && make dev`
+3. **Hot reload**: Development mode auto-reloads on Python changes
+4. **View logs**: `make logs` or `docker-compose logs -f app`
 
-### LLM Prompt Template (Japanese)
-```
-あなたは正確で信頼できる日本語の文書分析AIアシスタントです。
+## Troubleshooting
 
-【重要な制約】
-1. 以下の【参考文献】に記載された情報のみを使用して回答してください
-2. 文献に情報が無い場合は「提供された文書には該当情報が見つかりませんでした」と明言してください
-3. 推測や一般知識での補完は一切行わないでください
-4. 情報源を必ず明記してください
-```
+**Issue**: OCR confidence low
+- Check GPU memory: `nvidia-smi`
+- Try PaddleOCR fallback: Set `OCR_ENGINE=paddleocr`
 
-### Quality Metrics
-- OCR Accuracy: >=95% on tables, >=99% on vertical text
-- Retrieval: Recall@5 >=85%, NDCG@5 >=0.80
-- Generation: Factual accuracy >=95%, citation accuracy 100%
+**Issue**: Query latency high
+- Check GPU utilization
+- Increase Milvus `nprobe` parameter
+- Enable query caching
+
+**Issue**: Out of memory
+- Reduce `EMBEDDING_BATCH_SIZE`
+- Use smaller LLM model (Q4_K_M quantization)
+- Add more GPUs
+
+## Security Notes
+
+- All API endpoints require authentication except `/health` and `/`
+- JWT tokens expire after 15 minutes (access) or 7 days (refresh)
+- File uploads limited to 50MB PDFs only
+- Rate limiting: 60 queries/minute, 10 uploads/minute
