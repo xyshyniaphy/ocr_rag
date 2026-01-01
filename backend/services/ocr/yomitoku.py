@@ -83,11 +83,11 @@ class YomiTokuOCREngine(BaseOCREngine):
             return
 
         try:
-            import yomitoku
+            from yomitoku import DocumentAnalyzer
 
-            # Initialize the YomiToku reader
-            # YomiToku automatically loads models from the default location
-            self._reader = yomitoku.load_reader()
+            # Initialize the YomiToku DocumentAnalyzer
+            # device='cuda' for GPU, 'cpu' for CPU
+            self._reader = DocumentAnalyzer(device='cuda')
 
             self._is_loaded = True
             logger.info("YomiToku OCR model loaded successfully")
@@ -125,68 +125,86 @@ class YomiTokuOCREngine(BaseOCREngine):
 
         try:
             from PIL import Image
+            import numpy as np
 
             start_time = time.time()
 
             # Load image from bytes
             image = Image.open(io.BytesIO(image_bytes))
+            img_array = np.array(image)
 
-            # Run YomiToku OCR
-            # YomiToku returns structured data with text, boxes, and layout
-            result = self._reader.readtext(
-                image,
-                detect_orientation=True,
-                preserve_layout=self.options.preserve_layout,
-                extract_tables=self.options.extract_tables,
-            )
+            # WORKAROUND: Set img attribute for yomitoku aggregate method
+            self._reader.img = img_array
+
+            # Run YomiToku OCR (async)
+            results, ocr, layout = await self._reader.run(img_array)
 
             processing_time = int((time.time() - start_time) * 1000)
 
-            # Parse YomiToku result
+            # Parse YomiToku results
             blocks = []
             total_confidence = 0.0
+            block_texts = []
 
-            for item in result:
-                # YomiToku returns: (text, bbox, confidence)
-                text = item.get("text", "")
-                bbox_data = item.get("bbox", [])
-                confidence = item.get("confidence", 0.0)
+            # Process words for detailed blocks
+            if results.words:
+                for word in results.words:
+                    # Word format: points=[[x0,y0],[x1,y1],[x2,y2],[x3,y3]] content='text' direction='...' rec_score=X det_score=Y
+                    content = getattr(word, 'content', '')
+                    rec_score = getattr(word, 'rec_score', 0.0)
+                    det_score = getattr(word, 'det_score', 0.0)
+                    points = getattr(word, 'points', [])
 
-                if not text or confidence < self.options.confidence_threshold:
-                    continue
+                    if not content:
+                        continue
 
-                # Create bounding box
-                if len(bbox_data) >= 4:
-                    x_coords = [p[0] for p in bbox_data]
-                    y_coords = [p[1] for p in bbox_data]
-                    bbox = BoundingBox(
-                        x0=min(x_coords),
-                        y0=min(y_coords),
-                        x1=max(x_coords),
-                        y1=max(y_coords),
-                        width=max(x_coords) - min(x_coords),
-                        height=max(y_coords) - min(y_coords),
+                    # Combined confidence (recognition + detection)
+                    confidence = (rec_score + det_score) / 2
+
+                    # Filter by confidence threshold
+                    if confidence < self.options.confidence_threshold:
+                        continue
+
+                    # Create bounding box from points
+                    if points and len(points) >= 4:
+                        x_coords = [p[0] for p in points]
+                        y_coords = [p[1] for p in points]
+                        bbox = BoundingBox(
+                            x0=min(x_coords),
+                            y0=min(y_coords),
+                            x1=max(x_coords),
+                            y1=max(y_coords),
+                            width=max(x_coords) - min(x_coords),
+                            height=max(y_coords) - min(y_coords),
+                        )
+                    else:
+                        bbox = BoundingBox(x0=0, y0=0, x1=100, y1=20, width=100, height=20)
+
+                    blocks.append(
+                        OCRBlock(
+                            text=content,
+                            confidence=confidence,
+                            bbox=bbox,
+                            block_type="text",
+                        )
                     )
-                else:
-                    bbox = BoundingBox(
-                        x0=0, y0=0, x1=100, y1=20, width=100, height=20
-                    )
+                    total_confidence += confidence
 
-                # Determine block type
-                block_type = item.get("type", "text")
+            # Use paragraphs for full text (better structure)
+            if results.paragraphs:
+                paragraph_texts = []
+                for para in results.paragraphs:
+                    content = getattr(para, 'contents', '')
+                    if content:
+                        role = getattr(para, 'role', 'text')
+                        paragraph_texts.append(content)
+                        block_texts.append(content)
 
-                blocks.append(
-                    OCRBlock(
-                        text=text,
-                        confidence=confidence,
-                        bbox=bbox,
-                        block_type=block_type,
-                    )
-                )
-                total_confidence += confidence
+                full_text = "\n\n".join(paragraph_texts)
+            else:
+                # Fallback to blocks
+                full_text = "\n".join(block.text for block in blocks)
 
-            # Combine all text
-            full_text = "\n".join(block.text for block in blocks)
             avg_confidence = total_confidence / len(blocks) if blocks else 0.0
 
             logger.debug(

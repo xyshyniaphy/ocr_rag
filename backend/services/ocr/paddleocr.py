@@ -85,16 +85,11 @@ class PaddleOCREngine(BaseOCREngine):
             from paddleocr import PaddleOCR
 
             # Initialize PaddleOCR with Japanese language support
-            # use_angle_cls=True enables text direction detection
-            # lang='japan' for Japanese text recognition
+            # New API (paddleocr >= 2.7): use lang parameter for language
             self._ocr = PaddleOCR(
-                use_angle_cls=True,
-                lang="japan",
-                use_gpu=True,  # Use GPU if available
-                show_log=False,
-                det_db_thresh=0.3,
-                det_db_box_thresh=0.5,
-                rec_batch_num=6,
+                lang="japan",  # Japanese language
+                # Note: GPU is automatically detected in new versions
+                # Old parameters like use_angle_cls, use_gpu, show_log are deprecated
             )
 
             self._is_loaded = True
