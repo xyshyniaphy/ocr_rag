@@ -124,8 +124,6 @@ services:
     container_name: ocr-rag-postgres-prd
     hostname: postgres
     restart: always
-    ports:
-      - "5432:5432"
     environment:
       - POSTGRES_DB=rag_metadata
       - POSTGRES_USER=${POSTGRES_USER}
@@ -162,9 +160,6 @@ services:
     container_name: ocr-rag-milvus-prd
     hostname: milvus
     restart: always
-    ports:
-      - "19530:19530"
-      - "9091:9091"
     environment:
       - ETCD_ENDPOINTS=etcd:2379
       - MINIO_ADDRESS=minio:9000
@@ -186,7 +181,7 @@ services:
               count: 1
               capabilities: [gpu]
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9091/metrics"]
+      test: ["CMD-SHELL", "curl -f http://localhost:9091/metrics || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -237,9 +232,6 @@ services:
     container_name: ocr-rag-minio-prd
     hostname: minio
     restart: always
-    ports:
-      - "9000:9000"
-      - "9001:9001"
     environment:
       - MINIO_ROOT_USER=${MINIO_ACCESS_KEY}
       - MINIO_ROOT_PASSWORD=${MINIO_SECRET_KEY}
@@ -273,8 +265,6 @@ services:
     container_name: ocr-rag-redis-prd
     hostname: redis
     restart: always
-    ports:
-      - "6379:6379"
     command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-}
     volumes:
       - redis_data_prd:/data
@@ -305,8 +295,6 @@ services:
     container_name: ocr-rag-ollama-prd
     hostname: ollama
     restart: always
-    ports:
-      - "11434:11434"
     volumes:
       - ollama_models_prd:/root/.ollama
     environment:

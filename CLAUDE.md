@@ -71,16 +71,20 @@ ocr_rag/
 
 ## Access Points
 
-| Service | URL |
-|---------|-----|
-| FastAPI Backend | http://localhost:8000 |
-| API Docs | http://localhost:8000/docs |
-| Streamlit Admin UI | http://localhost:8501 |
-| WebSocket | ws://localhost:8000/api/v1/stream/ws |
-| MinIO Console | http://localhost:9001 |
-| Prometheus | http://localhost:9090 |
-| Grafana | http://localhost:3000 |
-| Flower (Celery) | http://localhost:9100 |
+| Service | URL | Notes |
+|---------|-----|-------|
+| FastAPI Backend | http://localhost:8000 | Main API |
+| API Docs | http://localhost:8000/docs | Swagger UI |
+| Streamlit Admin UI | http://localhost:8501 | Web interface |
+| WebSocket | ws://localhost:8000/api/v1/stream/ws | Real-time updates |
+| MinIO Console | http://localhost:9001 | Object storage (dev only) |
+
+**Optional Services** (require profiles):
+| Service | Profile | URL |
+|---------|---------|-----|
+| Prometheus | `--profile monitoring` | http://localhost:9090 |
+| Grafana | `--profile monitoring` | http://localhost:3000 |
+| PgAdmin | `--profile tools` | http://localhost:5050 |
 
 ## Default Credentials
 
