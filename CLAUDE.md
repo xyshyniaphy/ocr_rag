@@ -225,42 +225,59 @@ Use `./dev.sh rebuild base` or `./dev.sh rebuild app` to rebuild images.
 
 ## Model Storage Architecture
 
-Models are stored in separate locations to avoid conflicts and optimize caching:
+**CRITICAL POLICY: ALL MODELS MUST BE IN BASE IMAGE - NO RUNTIME DOWNLOADS**
+
+All ML models MUST be pre-downloaded in the Docker base image. Runtime downloads from HuggingFace Hub are **FORBIDDEN** to ensure:
+- ✅ Air-gapped deployment capability
+- ✅ Predictable startup times
+- ✅ No external dependencies at runtime
+- ✅ Version-locked models
 
 ```
-Container File System:
+Container File System (Base Image - Read-Only):
 ├── /app/models/                    # Base image (read-only)
-│   ├── sarashina/                  # Pre-downloaded in Dockerfile.base
-│   └── yomitoku/                   # Empty, library handles internally
+│   ├── sarashina/                  # ✅ Pre-downloaded in Dockerfile.base
+│   └── yomitoku/                   # ✅ Library managed (cached)
 │
-└── /app/reranker_models/           # Volume mount (read-write)
-    ├── huggingface_cache/          # HF download cache
-    └── llama-nv-reranker/          # Optional: saved model
+└── /app/reranker_models/           # ✅ Base image (read-only)
+    └── llama-nv-reranker/          # ✅ Pre-downloaded in Dockerfile.base
+
+Container File System (Volume Mounts - Read-Write):
+└── /app/reranker_models/           # Volume mount (for cache only, NOT for models)
+    └── huggingface_cache/          # HF download cache (read-only after build)
 ```
 
 ### Model-by-Model Details
 
-| Model | Path | Source | Volume | Edit Base Image? |
-|-------|------|--------|--------|------------------|
-| **Sarashina** | `/app/models/sarashina/` | Pre-downloaded | None | ✅ Yes |
-| **YomiToku** | `/app/models/yomitoku/` | Library managed | None | No (library) |
-| **Reranker** | `/app/reranker_models/` | Downloads on use | Yes | ❌ No |
-| **Qwen LLM** | N/A (Ollama) | Ollama managed | Yes | No (Ollama) |
+| Model | Path | Source | Volume | In Base Image? |
+|-------|------|--------|--------|----------------|
+| **Sarashina** | `/app/models/sarashina/` | Pre-downloaded | None | ✅ YES |
+| **Reranker** | `/app/reranker_models/llama-nv-reranker/` | Pre-downloaded | None | ✅ YES |
+| **YomiToku** | `/app/models/yomitoku/` | Library managed | None | ✅ YES (cached) |
+| **Qwen LLM** | N/A (Ollama) | Ollama managed | Yes | N/A (Ollama service) |
 
 ### Important Rules
 
-1. **Sarashina**: Pre-downloaded in base image at `/app/models/sarashina/`
-   - ✅ Can edit `Dockerfile.base` to update model
-   - Located in base image, no volume mount needed
+1. **ALL Models Pre-Downloaded**: ALL models MUST be in Docker base image
+   - ✅ Edit `Dockerfile.base` to add/update models
+   - ❌ NO runtime downloads from HuggingFace Hub
+   - ❌ NO fallback to internet for models
 
-2. **Reranker**: Downloaded on first use to `/app/reranker_models/`
-   - ❌ DO NOT edit `Dockerfile.base` for this model
-   - Uses volume mount: `reranker_models_dev:/app/reranker_models:rw`
-   - Pre-download script available: `scripts/download_reranker_model.py`
+2. **Sarashina**: Pre-downloaded in base image at `/app/models/sarashina/`
+   - ✅ Downloaded via `huggingface-cli` in Dockerfile.base
+   - ✅ Located in base image, no volume mount needed
+   - ✅ Code MUST NOT fall back to HuggingFace Hub
 
-3. **YomiToku & Qwen**: Managed by their respective libraries
-   - No manual path configuration needed
-   - Libraries handle model downloads internally
+3. **Reranker**: Pre-downloaded in base image at `/app/reranker_models/llama-nv-reranker/`
+   - ✅ Downloaded via `huggingface-cli` in Dockerfile.base
+   - ✅ Located in base image, no volume mount needed
+   - ✅ Code MUST NOT fall back to HuggingFace Hub
+   - ❌ NO volume mount for model storage
+
+4. **YomiToku & Qwen**: Managed by their respective libraries
+   - ✅ YomiToku caches models in base image during build
+   - ✅ Qwen runs in separate Ollama container
+   - ✅ Libraries MUST use local paths only
 
 ## Development Workflow
 

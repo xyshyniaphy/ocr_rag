@@ -123,6 +123,25 @@ RUN --mount=type=cache,target=/root/.cache/huggingface \
     ls -la /app/models/sarashina/*.safetensors 2>/dev/null || echo "Checking model files..." && \
     find /app/models/sarashina/ -name "*.safetensors" -size +100M -exec ls -lh {} \;
 
+# Setup NVIDIA Llama-3.2-NV Reranker Model (cross-encoder reranking)
+# Downloads reranker model for improved retrieval relevance
+# Retry up to 3 times if download fails
+RUN --mount=type=cache,target=/root/.cache/huggingface \
+    for i in 1 2 3; do \
+        echo "Download attempt $i/3..."; \
+        HF_HUB_ENABLE_HF_TRANSFER=1 \
+        huggingface-cli download \
+        nvidia/Llama-3.2-NV-RerankQA-1B-v2 \
+        --local-dir /app/reranker_models/llama-nv-reranker \
+        --local-dir-use-symlinks False && \
+        du -sh /app/reranker_models/llama-nv-reranker && \
+        find /app/reranker_models/llama-nv-reranker/ -name "*.safetensors" -o -name "*.bin" | head -5 && \
+        ls -lh /app/reranker_models/llama-nv-reranker/*.json 2>/dev/null && \
+        echo "✓ Download successful!" && break || \
+        echo "✗ Download attempt $i failed, retrying..."; \
+        sleep 10; \
+    done
+
 # Create non-root user for running the application
 RUN id -u appuser 2>/dev/null || useradd -m -u 1001 appuser && \
     chown -R appuser:appuser /app
@@ -135,6 +154,8 @@ LABEL maintainer="OCR RAG Team" \
       pytorch.version="2.7.1" \
       pytorch.cuda="12.8 (backward compatible)" \
       sentence-transformers.version="3.3.1" \
+      sarashina.model="sbintuitions/sarashina-embedding-v1-1b" \
+      reranker.model="nvidia/Llama-3.2-NV-RerankQA-1B-v2" \
       version="1.0.0"
 
 # Switch to non-root user

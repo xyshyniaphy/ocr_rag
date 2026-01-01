@@ -107,24 +107,29 @@ class SarashinaEmbeddingModel(BaseEmbeddingModel):
 
             start_time = time.time()
 
-            # Try local path first, then HuggingFace Hub
+            # CRITICAL: Use local path ONLY - NO HuggingFace Hub fallback
+            # All models MUST be pre-downloaded in Docker base image
             model_path = self.MODEL_PATH
 
             # Check if local model exists
             if not os.path.exists(model_path) or not os.listdir(model_path):
-                logger.info(
-                    f"Local model not found at {model_path}, "
-                    f"using HuggingFace Hub: {self.MODEL_NAME}"
+                raise EmbeddingProcessingError(
+                    f"Local model not found at {model_path}. "
+                    f"All models MUST be pre-downloaded in Docker base image. "
+                    f"Rebuild the base image: ./dev.sh rebuild base",
+                    details={
+                        "model_path": model_path,
+                        "expected_location": "Docker base image",
+                        "fix": "Rebuild base image with model pre-downloaded",
+                    },
                 )
-                model_path = self.MODEL_NAME
 
-            # Initialize the model
-            # Use cache_folder to ensure proper caching
-            cache_folder = os.path.expanduser("~/.cache/huggingface/hub")
+            # Initialize the model from local path ONLY
+            # No cache_folder needed - model is already in base image
             self._model = SentenceTransformer(
                 model_path,
                 device=self.device,
-                cache_folder=cache_folder,
+                cache_folder=None,  # Disable cache - use local files only
             )
 
             # Verify model dimension

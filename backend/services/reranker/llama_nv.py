@@ -87,9 +87,8 @@ class LlamaNVRerankerModel:
         """
         Load the Llama-3.2-NV Reranker model into memory
 
-        The model will be loaded from:
-        1. Local path (/app/reranker_models/llama-nv-reranker/) if exists
-        2. HuggingFace Hub cache if not found locally
+        CRITICAL: Model MUST be pre-downloaded in Docker base image.
+        NO HuggingFace Hub fallback allowed.
         """
         if self._is_loaded:
             logger.debug("Llama-3.2-NV Reranker model already loaded")
@@ -104,33 +103,39 @@ class LlamaNVRerankerModel:
 
             start_time = time.time()
 
-            # Create cache directory if it doesn't exist
-            os.makedirs(self.CACHE_DIR, exist_ok=True)
-
-            # Determine model path
+            # CRITICAL: Use local path ONLY - NO HuggingFace Hub fallback
+            # All models MUST be pre-downloaded in Docker base image
             model_path = self.MODEL_PATH
 
             # Check if local model exists
             if not os.path.exists(model_path) or not os.listdir(model_path):
-                logger.info(
-                    f"Local model not found at {model_path}, "
-                    f"using HuggingFace Hub with cache at {self.CACHE_DIR}: {self.MODEL_NAME}"
+                raise RerankingProcessingError(
+                    f"Local model not found at {model_path}. "
+                    f"All models MUST be pre-downloaded in Docker base image. "
+                    f"Rebuild the base image: ./dev.sh rebuild base",
+                    details={
+                        "model_path": model_path,
+                        "expected_location": "Docker base image",
+                        "fix": "Rebuild base image with model pre-downloaded",
+                    },
                 )
-                model_path = self.MODEL_NAME
 
-            # Load tokenizer and model
-            logger.info(f"Loading Llama-3.2-NV Reranker from {model_path}...")
+            # Load tokenizer and model from local path ONLY
+            # No cache_dir needed - model is already in base image
+            logger.info(f"Loading Llama-3.2-NV Reranker from local path: {model_path}...")
 
             self._tokenizer = AutoTokenizer.from_pretrained(
                 model_path,
-                cache_dir=self.CACHE_DIR,
+                cache_dir=None,  # Disable cache - use local files only
                 trust_remote_code=True,
+                local_files_only=True,  # CRITICAL: Enforce local files only
             )
 
             self._model = AutoModelForSequenceClassification.from_pretrained(
                 model_path,
-                cache_dir=self.CACHE_DIR,
+                cache_dir=None,  # Disable cache - use local files only
                 trust_remote_code=True,
+                local_files_only=True,  # CRITICAL: Enforce local files only
                 torch_dtype=torch.float16 if "cuda" in self.device else torch.float32,
             )
 
