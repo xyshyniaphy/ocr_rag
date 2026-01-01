@@ -18,6 +18,7 @@ help:
 	@echo "Testing:"
 	@echo "  make test         - Run all tests"
 	@echo "  make test-ocr     - Run OCR service test"
+	@echo "  make test-chunking - Run chunking service test"
 	@echo "  make lint         - Run linting"
 	@echo "  make format       - Format code"
 	@echo ""
@@ -70,6 +71,11 @@ test:
 test-ocr:
 	@echo "Running OCR service test..."
 	./test_ocr.sh
+
+# Run chunking service test
+test-chunking:
+	@echo "Running chunking service test..."
+	./test_chunking.sh
 
 # Lint code
 lint:
