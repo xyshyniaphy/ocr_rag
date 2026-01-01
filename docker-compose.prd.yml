@@ -1,8 +1,5 @@
 # Docker Compose - Production Environment
 # This file is for production deployment with optimized settings
-
-version: '3.8'
-
 services:
   # ============================================
   # MAIN APPLICATION (FastAPI + Streamlit)

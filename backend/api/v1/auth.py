@@ -18,7 +18,7 @@ from backend.core.security import (
 )
 from backend.core.exceptions import AuthenticationException, ValidationException
 from backend.db.session import get_db_session
-from backend.models.user import User as UserModel
+from backend.db.models import User as UserModel
 from backend.models.auth import (
     LoginRequest,
     RegisterRequest,

@@ -1,8 +1,5 @@
 # Docker Compose - Development Environment
 # This file is for local development with hot-reload and debugging enabled
-
-version: '3.8'
-
 services:
   # ============================================
   # MAIN APPLICATION (FastAPI + Streamlit)
@@ -136,6 +133,7 @@ services:
   # ============================================
   milvus:
     image: milvusdb/milvus:v2.4.0-gpu
+    command: ["milvus", "run", "standalone"]
     container_name: ocr-rag-milvus-dev
     hostname: milvus
     restart: unless-stopped

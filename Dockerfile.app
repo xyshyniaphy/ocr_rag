@@ -2,7 +2,7 @@
 # Stage 1: App Builder
 # Installs application dependencies into virtual environment
 # ========================================
-FROM base:latest AS app-builder
+FROM ocr-rag:base AS app-builder
 
 # Switch to root for installation
 USER root
@@ -10,18 +10,23 @@ USER root
 # Set working directory
 WORKDIR /app
 
+# Install uv (fast Python package installer) in app-builder
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh && \
+    mv /root/.local/bin/uv /usr/local/bin/uv
+
 # Copy application requirements
 COPY requirements-app.txt /app/
 
-# Install application dependencies using uv into existing venv
-RUN uv pip install --no-cache-dir -r requirements-app.txt
+# Uninstall old SQLAlchemy to clear Cython cache, then install all dependencies
+RUN uv pip uninstall -y sqlalchemy || true && \
+    uv pip install --no-cache-dir --reinstall -r requirements-app.txt
 
 
 # ========================================
 # Stage 2: App
 # Final runtime image with venv and application code
 # ========================================
-FROM base:latest AS app
+FROM ocr-rag:base AS app
 
 # Switch to root for setup
 USER root
@@ -37,11 +42,11 @@ COPY --chown=appuser:appuser backend/ /app/backend/
 COPY --chown=appuser:appuser frontend/ /app/frontend/
 COPY --chown=appuser:appuser scripts/ /app/scripts/
 
-# Copy configuration files
-COPY --chown=appuser:appuser deployment/docker/entrypoint.sh /app/entrypoint.sh
+# Copy and set up entrypoint directly in the image
+COPY --chown=appuser:appuser deployment/docker/entrypoint-dev.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
-# Create necessary directories
+# Create necessary directories with proper permissions
 RUN mkdir -p /app/logs /app/data /app/tmp && \
     chown -R appuser:appuser /app/logs /app/data /app/tmp
 

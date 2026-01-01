@@ -6,6 +6,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is a **Japanese OCR RAG System** - a production-grade Retrieval-Augmented Generation system optimized for Japanese PDF document processing. The system is privacy-first (air-gapped deployment supported) and designed for legal, financial, academic, and enterprise document analysis.
 
+## IMPORTANT RULES
+
+1. **DO NOT edit `Dockerfile.base` unless explicitly asked by the user**
+   - The base image is complex and takes ~10 minutes to build
+   - It contains ML models and heavy dependencies (PyTorch, CUDA, etc.)
+   - Only edit when adding new ML libraries or updating core dependencies
+
+2. **ALWAYS use `dev.sh` to start/stop Docker services**
+   - Use `./dev.sh up` to start development environment
+   - Use `./dev.sh down` to stop services
+   - Use `./dev.sh logs [service]` to view logs
+   - Use `./dev.sh shell` to open shell in app container
+   - Do NOT use `docker-compose` directly
+
 ## Directory Structure
 
 ```
@@ -36,6 +50,7 @@ ocr_rag/
 ├── Dockerfile.app             # Application image (lightweight)
 ├── docker-compose.dev.yml     # Development environment
 ├── docker-compose.prd.yml     # Production environment
+├── dev.sh                     # Development environment manager script
 ├── requirements-base.txt      # Base ML dependencies
 └── requirements-app.txt       # Application dependencies
 ```
@@ -44,12 +59,14 @@ ocr_rag/
 
 ```bash
 # Development
-make dev          # Start development environment
-make logs         # View logs
-make shell        # Open shell in container
+./dev.sh          # Start development environment (default: up)
+./dev.sh logs     # View logs
+./dev.sh shell    # Open shell in container
+./dev.sh down     # Stop all services
+./dev.sh help     # Show all commands
 
 # Production
-make prod         # Start production environment
+./prod.sh         # Start production environment (when available)
 ```
 
 ## Access Points
@@ -184,18 +201,21 @@ The project uses a multi-stage Docker build:
    - Contains ML models (Sarashina, YomiToku, PaddleOCR)
    - Heavy dependencies (PyTorch, Transformers)
    - Cached and rebuilt infrequently
+   - **WARNING**: DO NOT edit without explicit user approval
 
 2. **App Image** (`Dockerfile.app`):
    - Application code (`backend/`, `frontend/`)
    - Lightweight dependencies (FastAPI, Streamlit)
    - Rebuilt on code changes
 
+Use `./dev.sh rebuild base` or `./dev.sh rebuild app` to rebuild images.
+
 ## Development Workflow
 
 1. **Make changes to code** in `backend/` or `frontend/`
-2. **Restart containers**: `make down && make dev`
+2. **Restart containers**: `./dev.sh restart`
 3. **Hot reload**: Development mode auto-reloads on Python changes
-4. **View logs**: `make logs` or `docker-compose logs -f app`
+4. **View logs**: `./dev.sh logs` or `./dev.sh logs app`
 
 ## Troubleshooting
 
