@@ -46,6 +46,9 @@ ENV PATH="/app/.venv/bin:$PATH"
 COPY requirements-base.txt /app/
 RUN uv pip install --no-cache-dir --index-strategy unsafe-best-match -r requirements-base.txt
 
+# Install huggingface-cli for model downloads
+RUN uv pip install --no-cache-dir "huggingface_hub[cli]" hf_transfer
+
 
 # ========================================
 # Stage 2: Base
@@ -102,10 +105,12 @@ COPY --from=builder /app/.venv /app/.venv
 # Download and cache models in the image
 RUN mkdir -p /app/models/sarashina /app/models/yomitoku
 
-# Setup Sarashina Embedding Model (Japanese embeddings) - download into image
-RUN cd /app/models/sarashina && \
-    git clone https://huggingface.co/sbintuitions/sarashina-embedding-v1-1b . && \
-    ls -la
+# Setup Sarashina Embedding Model (Japanese embeddings) - use huggingface-cli for proper download
+RUN HF_HUB_ENABLE_HF_TRANSFER=1 huggingface-cli download \
+    sbintuitions/sarashina-embedding-v1-1b \
+    --local-dir /app/models/sarashina \
+    --local-dir-use-symlinks False && \
+    ls -la /app/models/sarashina/
 
 # Create non-root user for running the application
 RUN id -u appuser 2>/dev/null || useradd -m -u 1001 appuser && \
@@ -118,7 +123,7 @@ LABEL maintainer="OCR RAG Team" \
       python.version="3.12.x (system)" \
       pytorch.version="2.7.1" \
       pytorch.cuda="12.8 (backward compatible)" \
-      sentence-transformers.version="3.0.1" \
+      sentence-transformers.version="3.3.1" \
       version="1.0.0"
 
 # Switch to non-root user
