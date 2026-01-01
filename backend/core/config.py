@@ -67,11 +67,15 @@ class Settings(BaseSettings):
     CELERY_BROKER_URL: str = "redis://localhost:6379/1"
     CELERY_RESULT_BACKEND: str = "redis://localhost:6379/2"
 
-    # Ollama
+    # Ollama (LLM Service)
     OLLAMA_HOST: str = "localhost:11434"
-    OLLAMA_MODEL: str = "qwen2.5:14b-instruct-q4_K_M"
-    OLLAMA_NUM_CTX: int = 32768
-    OLLAMA_TEMPERATURE: float = 0.1
+    OLLAMA_MODEL: str = "qwen3:4b"  # Qwen3 4B parameters (default model)
+    OLLAMA_NUM_CTX: int = 32768  # Context window size (tokens)
+    OLLAMA_TEMPERATURE: float = 0.1  # Default temperature (0.0-1.0)
+    OLLAMA_TOP_P: float = 0.9  # Nucleus sampling
+    OLLAMA_TOP_K: int = 40  # Top-k sampling
+    OLLAMA_NUM_PREDICT: int = 2048  # Max tokens to generate
+    OLLAMA_REPEAT_PENALTY: float = 1.1  # Repeat penalty (1.0 = no penalty)
 
     # OCR
     OCR_ENGINE: str = "yomitoku"
@@ -91,11 +95,13 @@ class Settings(BaseSettings):
     EMBEDDING_CACHE_TTL: int = 86400  # 24 hours in seconds
 
     # Reranker
-    RERANKER_MODEL: str = "nvidia/llama-3.2-nv-rerankqa-1b-v2"
+    RERANKER_MODEL: str = "nvidia/Llama-3.2-NV-RerankQA-1B-v2"
+    RERANKER_MODEL_PATH: str = "/app/reranker_models/llama-nv-reranker"
     RERANKER_DEVICE: str = "cuda:0"
     RERANKER_TOP_K_INPUT: int = 20
     RERANKER_TOP_K_OUTPUT: int = 5
     RERANKER_THRESHOLD: float = 0.65
+    RERANKER_BATCH_SIZE: int = 32
 
     # Chunking
     CHUNK_SIZE: int = 512

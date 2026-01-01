@@ -97,7 +97,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # Create directory structure
-RUN mkdir -p /app/models /app/data /app/logs /app/tmp
+RUN mkdir -p /app/models /app/reranker_models /app/data /app/logs /app/tmp
 
 # Copy virtual environment from builder stage
 COPY --from=builder /app/.venv /app/.venv

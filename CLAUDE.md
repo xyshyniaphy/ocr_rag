@@ -37,7 +37,8 @@ ocr_rag/
 │   ├── services/             # Business logic
 │   │   ├── ocr/             # OCR processing (YomiToku)
 │   │   ├── embedding/       # Embedding generation (Sarashina)
-│   │   ├── retrieval/       # Vector + Keyword search
+│   │   ├── retrieval/       # Vector + Keyword search (Hybrid)
+│   │   ├── reranker/        # Reranking (Llama-3.2-NV-RerankQA)
 │   │   ├── llm/            # LLM generation (Qwen via Ollama)
 │   │   └── rag/            # RAG orchestration
 │   ├── tasks/                # Celery background tasks
@@ -117,7 +118,7 @@ User Query → Embedding → Hybrid Search (Milvus + PostgreSQL BM25)
 | Backend Framework | FastAPI |
 | Frontend Framework | Streamlit |
 | OCR | YomiToku (Japanese optimized) |
-| Embedding | Sarashina-Embedding-v1-1B (768D) |
+| Embedding | Sarashina-Embedding-v1-1B (1792D) |
 | Reranker | Llama-3.2-NV-RerankQA-1B-v2 |
 | LLM | Qwen2.5-14B (Ollama) |
 | Vector DB | Milvus 2.4+ |
@@ -173,6 +174,8 @@ Key environment variables:
 3. **Services**: Business logic in `backend/services/`
    - OCR engines in `services/ocr/`
    - Embedding in `services/embedding/`
+   - Retrieval (vector + keyword) in `services/retrieval/`
+   - Reranking in `services/reranker/`
    - RAG pipeline in `services/rag/`
 
 4. **Database Access**: Use Repository pattern
@@ -220,6 +223,45 @@ The project uses a multi-stage Docker build:
 
 Use `./dev.sh rebuild base` or `./dev.sh rebuild app` to rebuild images.
 
+## Model Storage Architecture
+
+Models are stored in separate locations to avoid conflicts and optimize caching:
+
+```
+Container File System:
+├── /app/models/                    # Base image (read-only)
+│   ├── sarashina/                  # Pre-downloaded in Dockerfile.base
+│   └── yomitoku/                   # Empty, library handles internally
+│
+└── /app/reranker_models/           # Volume mount (read-write)
+    ├── huggingface_cache/          # HF download cache
+    └── llama-nv-reranker/          # Optional: saved model
+```
+
+### Model-by-Model Details
+
+| Model | Path | Source | Volume | Edit Base Image? |
+|-------|------|--------|--------|------------------|
+| **Sarashina** | `/app/models/sarashina/` | Pre-downloaded | None | ✅ Yes |
+| **YomiToku** | `/app/models/yomitoku/` | Library managed | None | No (library) |
+| **Reranker** | `/app/reranker_models/` | Downloads on use | Yes | ❌ No |
+| **Qwen LLM** | N/A (Ollama) | Ollama managed | Yes | No (Ollama) |
+
+### Important Rules
+
+1. **Sarashina**: Pre-downloaded in base image at `/app/models/sarashina/`
+   - ✅ Can edit `Dockerfile.base` to update model
+   - Located in base image, no volume mount needed
+
+2. **Reranker**: Downloaded on first use to `/app/reranker_models/`
+   - ❌ DO NOT edit `Dockerfile.base` for this model
+   - Uses volume mount: `reranker_models_dev:/app/reranker_models:rw`
+   - Pre-download script available: `scripts/download_reranker_model.py`
+
+3. **YomiToku & Qwen**: Managed by their respective libraries
+   - No manual path configuration needed
+   - Libraries handle model downloads internally
+
 ## Development Workflow
 
 1. **Make changes to code** in `backend/` or `frontend/`
@@ -258,7 +300,7 @@ The system uses two databases:
    - `permissions` - Document-level access control (ACL)
 
 2. **Milvus** (`document_chunks`) - Vector database for:
-   - 768-dimensional embeddings (Sarashina-Embedding-v1-1B)
+   - 1792-dimensional embeddings (Sarashina-Embedding-v1-1B)
    - Semantic search with HNSW index
    - Hybrid vector + keyword search support
 

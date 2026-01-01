@@ -65,27 +65,35 @@ docker exec ocr-rag-app-dev python /app/scripts/seed_admin.py
 
 ## Architecture
 
+**Document Ingestion:**
 ```
 PDF Upload → Validation → OCR (YomiToku) → Markdown → Chunking
 → Embedding (Sarashina) → Milvus → PostgreSQL → Complete
 ```
 
+**Query Processing:**
+```
+User Query → Embedding → Hybrid Search (Milvus + PostgreSQL)
+→ Reranking (Llama-3.2-NV) → Context Assembly → LLM (Qwen)
+→ Response with Sources
+```
+
 ### Technology Stack
 
-| Component | Technology |
-|-----------|------------|
-| Backend Framework | FastAPI |
-| Frontend Framework | Streamlit |
-| OCR (Primary) | YomiToku |
-| OCR (Fallback) | PaddleOCR-VL |
-| Embedding | Sarashina-Embedding-v1-1B (768D) |
-| Reranker | Llama-3.2-NV-RerankQA-1B-v2 |
-| LLM | Qwen2.5-14B (Ollama) |
-| Vector DB | Milvus 2.4+ |
-| Metadata DB | PostgreSQL 16+ |
-| Object Storage | MinIO |
-| Cache | Redis |
-| Task Queue | Celery |
+| Component | Technology | Description |
+|-----------|------------|-------------|
+| Backend Framework | FastAPI | High-performance async API |
+| Frontend Framework | Streamlit | Admin UI and monitoring |
+| OCR (Primary) | YomiToku | Japanese optimized OCR |
+| OCR (Fallback) | PaddleOCR-VL | Multilingual OCR fallback |
+| Embedding | Sarashina-Embedding-v1-1B | 1792D Japanese embeddings |
+| Reranker | Llama-3.2-NV-RerankQA-1B-v2 | Cross-encoder for relevance |
+| LLM | Qwen2.5-14B (Ollama) | Generation via Ollama |
+| Vector DB | Milvus 2.4+ | HNSW index, COSINE similarity |
+| Metadata DB | PostgreSQL 16+ | Document metadata and chunks |
+| Object Storage | MinIO | PDF file storage |
+| Cache | Redis | Query and embedding cache |
+| Task Queue | Celery | Async document processing |
 
 ## Development
 
@@ -99,11 +107,21 @@ ocr_rag/
 │   ├── models/                # SQLAlchemy & Pydantic models
 │   ├── api/v1/               # REST API endpoints
 │   ├── db/                    # Database (PostgreSQL + Milvus)
+│   │   ├── repositories/     # Repository pattern
+│   │   └── vector/           # Vector database client
 │   ├── storage/              # MinIO client
 │   ├── services/             # Business logic
+│   │   ├── ocr/             # OCR processing (YomiToku)
+│   │   ├── embedding/       # Embedding (Sarashina)
+│   │   ├── retrieval/       # Vector + Keyword search
+│   │   ├── reranker/        # Reranking (Llama-3.2-NV)
+│   │   ├── llm/            # LLM generation (Qwen)
+│   │   └── rag/            # RAG orchestration
 │   ├── tasks/                # Celery tasks
 │   └── utils/                # Utilities
 ├── frontend/                  # Streamlit Admin UI
+├── scripts/                   # Utility scripts
+│   └── download_reranker_model.py  # Pre-download reranker
 ├── Dockerfile.base            # Base ML image
 ├── Dockerfile.app             # Application image
 ├── docker-compose.dev.yml     # Development config
@@ -139,6 +157,7 @@ docker compose -f docker-compose.prd.yml up -d
 | OCR Processing | <10s/page | 30s/page |
 | Embedding | <50ms/chunk | 200ms/chunk |
 | Vector Search | <100ms | 500ms |
+| Reranking | <200ms (20 docs) | 500ms |
 
 ## Troubleshooting
 
@@ -151,10 +170,29 @@ docker compose -f docker-compose.prd.yml up -d
 - Increase Milvus `nprobe` parameter
 - Enable query caching
 
+**Issue**: Reranker model download slow
+- Model downloads on first use (~2GB)
+- Pre-download with: `docker exec ocr-rag-app-dev python /app/scripts/download_reranker_model.py`
+- Subsequent runs use cached model from volume
+
 **Issue**: Out of memory
 - Reduce `EMBEDDING_BATCH_SIZE`
+- Reduce `RERANKER_BATCH_SIZE`
 - Use smaller LLM model (Q4_K_M quantization)
 - Add more GPUs
+
+## Model Storage
+
+Models are stored in separate locations:
+
+| Model | Location | Storage Type |
+|-------|----------|--------------|
+| Sarashina Embedding | `/app/models/sarashina/` | Base image (pre-built) |
+| YomiToku OCR | Library managed | Runtime cache |
+| Llama-3.2-NV Reranker | `/app/reranker_models/` | Docker volume (cached) |
+| Qwen LLM | `/root/.ollama` | Docker volume (Ollama) |
+
+**Note**: The reranker model is downloaded on first use and cached in a Docker volume. Pre-download with the provided script for faster startup.
 
 ## License
 
