@@ -95,7 +95,6 @@ async def test_ocr_service():
         options = OCROptions(
             engine="yomitoku",
             confidence_threshold=0.80,
-            fallback_threshold=0.75,
             preserve_layout=True,
             extract_tables=True,
         )
@@ -128,59 +127,6 @@ async def test_ocr_service():
     return True
 
 
-async def test_ocr_fallback():
-    """Test OCR fallback mechanism"""
-
-    print("\n" + "=" * 60)
-    print("OCR Fallback Test")
-    print("=" * 60)
-
-    test_pdf_path = Path("/app/backend/testdata/test.pdf")
-    if not test_pdf_path.exists():
-        test_pdf_path = Path("testdata/test.pdf")
-
-    if not test_pdf_path.exists():
-        print(f"ERROR: Test PDF not found")
-        return False
-
-    with open(test_pdf_path, "rb") as f:
-        pdf_bytes = f.read()
-
-    # Test with very high threshold to trigger fallback
-    print("\nTesting fallback with high confidence threshold...")
-
-    options = OCROptions(
-        engine="yomitoku",
-        confidence_threshold=0.99,  # Very high to trigger fallback
-        fallback_threshold=0.95,
-        enable_fallback=True,
-    )
-
-    try:
-        result = await OCRService.process_pdf(
-            pdf_bytes,
-            engine="yomitoku",
-            fallback_engine="paddleocr",
-            options=options,
-            enable_fallback=True,
-        )
-
-        print(f"Final engine used: {result.engine_used}")
-        print(f"Confidence: {result.confidence:.2%}")
-
-        if result.metadata.get("primary_engine"):
-            print(f"Primary engine was: {result.metadata['primary_engine']}")
-            print(f"Primary confidence was: {result.metadata.get('primary_confidence', 0):.2%}")
-
-        return True
-
-    except Exception as e:
-        print(f"ERROR during fallback test: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
-
-
 async def main():
     """Main test runner"""
 
@@ -193,10 +139,6 @@ async def main():
 
     # Run basic test
     if not await test_ocr_service():
-        success = False
-
-    # Run fallback test
-    if not await test_ocr_fallback():
         success = False
 
     if success:

@@ -100,7 +100,7 @@ RUN mkdir -p /app/models /app/data /app/logs /app/tmp
 COPY --from=builder /app/.venv /app/.venv
 
 # Download and cache models in the image
-RUN mkdir -p /app/models/sarashina /app/models/yomitoku /app/models/paddleocr
+RUN mkdir -p /app/models/sarashina /app/models/yomitoku
 
 # Setup Sarashina Embedding Model (Japanese embeddings) - download into image
 RUN cd /app/models/sarashina && \
@@ -118,7 +118,7 @@ LABEL maintainer="OCR RAG Team" \
       python.version="3.12.x (system)" \
       pytorch.version="2.7.1" \
       pytorch.cuda="12.8 (backward compatible)" \
-      paddlepaddle.version="2.6.2" \
+      sentence-transformers.version="3.0.1" \
       version="1.0.0"
 
 # Switch to non-root user

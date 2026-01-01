@@ -19,7 +19,7 @@ def process_document(self, document_id: str) -> Dict[str, Any]:
     Process document through the OCR pipeline
 
     Stages:
-    1. OCR Processing (YomiToku -> PaddleOCR fallback)
+    1. OCR Processing (YomiToku)
     2. Text Chunking
     3. Embedding Generation
     4. Vector DB Insertion

@@ -35,7 +35,7 @@ ocr_rag/
 │   │   └── vector/           # Vector database client
 │   ├── storage/              # MinIO object storage client
 │   ├── services/             # Business logic
-│   │   ├── ocr/             # OCR processing (YomiToku, PaddleOCR)
+│   │   ├── ocr/             # OCR processing (YomiToku)
 │   │   ├── embedding/       # Embedding generation (Sarashina)
 │   │   ├── retrieval/       # Vector + Keyword search
 │   │   ├── llm/            # LLM generation (Qwen via Ollama)
@@ -116,8 +116,7 @@ User Query → Embedding → Hybrid Search (Milvus + PostgreSQL BM25)
 |-----------|------------|
 | Backend Framework | FastAPI |
 | Frontend Framework | Streamlit |
-| OCR (Primary) | YomiToku |
-| OCR (Fallback) | PaddleOCR-VL |
+| OCR | YomiToku (Japanese optimized) |
 | Embedding | Sarashina-Embedding-v1-1B (768D) |
 | Reranker | Llama-3.2-NV-RerankQA-1B-v2 |
 | LLM | Qwen2.5-14B (Ollama) |
@@ -137,7 +136,7 @@ Key environment variables:
 - `SECRET_KEY` - JWT signing key (generate with `openssl rand -hex 32`)
 - `POSTGRES_PASSWORD` - PostgreSQL password
 - `OLLAMA_HOST` - Ollama LLM server address
-- `OCR_ENGINE` - OCR engine selection (`yomitoku` or `paddleocr`)
+- `OCR_ENGINE` - OCR engine selection (`yomitoku`)
 
 ## Module Import Conventions
 
@@ -209,8 +208,8 @@ Single GPU (RTX 4090 24GB) allocation:
 The project uses a multi-stage Docker build:
 
 1. **Base Image** (`Dockerfile.base`):
-   - Contains ML models (Sarashina, YomiToku, PaddleOCR)
-   - Heavy dependencies (PyTorch, Transformers)
+   - Contains ML models (Sarashina, YomiToku)
+   - Heavy dependencies (PyTorch, Transformers, sentence-transformers)
    - Cached and rebuilt infrequently
    - **WARNING**: DO NOT edit without explicit user approval
 
@@ -232,7 +231,8 @@ Use `./dev.sh rebuild base` or `./dev.sh rebuild app` to rebuild images.
 
 **Issue**: OCR confidence low
 - Check GPU memory: `nvidia-smi`
-- Try PaddleOCR fallback: Set `OCR_ENGINE=paddleocr`
+- Verify input image quality
+- Check YomiToku model is loaded correctly
 
 **Issue**: Query latency high
 - Check GPU utilization

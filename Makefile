@@ -1,6 +1,6 @@
 # Makefile for Japanese OCR RAG System
 
-.PHONY: help build dev prod up down logs shell test lint format clean
+.PHONY: help build dev prod up down logs shell test test-ocr test-chunking test-embedding lint format clean
 
 # Default target
 help:
@@ -19,6 +19,7 @@ help:
 	@echo "  make test         - Run all tests"
 	@echo "  make test-ocr     - Run OCR service test"
 	@echo "  make test-chunking - Run chunking service test"
+	@echo "  make test-embedding - Run embedding service test"
 	@echo "  make lint         - Run linting"
 	@echo "  make format       - Format code"
 	@echo ""
@@ -76,6 +77,11 @@ test-ocr:
 test-chunking:
 	@echo "Running chunking service test..."
 	./test_chunking.sh
+
+# Run embedding service test
+test-embedding:
+	@echo "Running embedding service test..."
+	./test_embedding.sh
 
 # Lint code
 lint:

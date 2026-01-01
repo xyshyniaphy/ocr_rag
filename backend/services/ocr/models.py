@@ -66,7 +66,7 @@ class OCROptions(BaseModel):
 
     engine: str = Field(
         default="yomitoku",
-        description="OCR engine: yomitoku or paddleocr",
+        description="OCR engine: yomitoku",
     )
     language: str = Field(
         default="ja",
@@ -77,16 +77,6 @@ class OCROptions(BaseModel):
         ge=0.0,
         le=1.0,
         description="Minimum confidence threshold for text",
-    )
-    enable_fallback: bool = Field(
-        default=True,
-        description="Enable fallback to secondary OCR engine",
-    )
-    fallback_threshold: float = Field(
-        default=0.80,
-        ge=0.0,
-        le=1.0,
-        description="Confidence threshold to trigger fallback",
     )
     preserve_layout: bool = Field(
         default=True,

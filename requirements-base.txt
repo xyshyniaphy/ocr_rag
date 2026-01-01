@@ -14,12 +14,6 @@ torchvision==0.22.1
 torchaudio==2.7.1
 
 # ============================================
-# PADDLEPADDLE
-# ============================================
-# Latest 2.6.x for compatibility with CUDA 12.9 and paddleocr 3.3.2
-paddlepaddle-gpu==2.6.2
-
-# ============================================
 # TRANSFORMERS AND NLP
 # ============================================
 transformers==4.36.0
@@ -60,9 +54,13 @@ pandas==2.0.3
 pytesseract==0.3.10
 pdf2image==1.16.0
 pymupdf==1.24.12
-# Japanese OCR engines
-paddleocr==3.3.2
+# Japanese OCR engine
 yomitoku==0.9.5
+
+# ============================================
+# EMBEDDING MODELS
+# ============================================
+sentence-transformers==3.0.1
 
 # ============================================
 # VECTOR DATABASE (Milvus)
