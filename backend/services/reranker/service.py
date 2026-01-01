@@ -10,7 +10,7 @@ This service provides:
 """
 
 import time
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Tuple
 from datetime import datetime
 
 from backend.core.logging import get_logger

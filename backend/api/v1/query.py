@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.logging import get_logger
-from backend.core.exceptions import ValidationException
+from backend.core.exceptions import ValidationException, RAGException
 from backend.db.session import get_db_session
 from backend.db.models import Document as DocumentModel
 from backend.models.query import (
@@ -19,6 +19,12 @@ from backend.models.query import (
     SourceReference,
     SearchRequest,
     SearchResponse,
+)
+from backend.services.rag import (
+    get_rag_service,
+    RAGQueryOptions,
+    RAGValidationError,
+    RAGProcessingError,
 )
 
 logger = get_logger(__name__)
@@ -41,89 +47,104 @@ async def query_rag(
     - **stream**: Stream response tokens (not implemented yet)
     - **rerank**: Apply reranker (default: true)
     """
-    import time
-    from sqlalchemy import select
-
-    # Start timer
-    start_time = time.time()
-    stage_timings = {}
-
-    # TODO: Implement actual RAG pipeline
-    # For now, return a mock response
-
-    # Stage 1: Query understanding
-    stage_start = time.time()
-    normalized_query = request.query.strip()
-    stage_timings["query_understanding"] = int((time.time() - stage_start) * 1000)
-
-    # Stage 2: Vector search (mock)
-    stage_start = time.time()
-    # TODO: Implement actual vector search
-    stage_timings["vector_search"] = int((time.time() - stage_start) * 1000)
-
-    # Stage 3: Reranking (mock)
-    stage_start = time.time()
-    # TODO: Implement actual reranking
-    stage_timings["reranking"] = int((time.time() - stage_start) * 1000)
-
-    # Stage 4: Context assembly (mock)
-    stage_start = time.time()
-    # TODO: Implement actual context assembly
-    stage_timings["context_assembly"] = int((time.time() - stage_start) * 1000)
-
-    # Stage 5: LLM generation (mock)
-    stage_start = time.time()
-    # TODO: Implement actual LLM generation
-    answer = "This is a placeholder response. The RAG pipeline is not yet implemented."
-    stage_timings["llm_generation"] = int((time.time() - stage_start) * 1000)
-
-    total_time = int((time.time() - start_time) * 1000)
-
-    # Mock sources
-    sources = [
-        SourceReference(
-            document_id="00000000-0000-0000-0000-000000000000",
-            document_title="Sample Document",
-            page_number=1,
-            chunk_index=0,
-            chunk_text="Sample text content...",
-            relevance_score=0.9,
+    try:
+        # Build RAG query options
+        options = RAGQueryOptions(
+            top_k=request.top_k,
+            retrieval_top_k=min(request.top_k * 2, 50),  # Retrieve more for reranking
+            rerank_top_k=request.top_k,
+            rerank=request.rerank,
+            retrieval_method="hybrid",
+            document_ids=request.document_ids,
+            include_sources=request.include_sources,
+            use_cache=True,
+            language=request.language,
         )
-    ]
 
-    # Create query record
-    from backend.db.models import Query as QueryModel
+        # Get RAG service and process query
+        rag_service = await get_rag_service()
+        rag_result = await rag_service.query(
+            query=request.query,
+            options=options,
+            user_id=None,  # TODO: Get from authenticated user
+        )
 
-    query_record = QueryModel(
-        id=uuid.uuid4(),
-        user_id=None,  # TODO: Get from authenticated user
-        query_text=request.query,
-        query_language=request.language,
-        query_type="hybrid",
-        top_k=request.top_k,
-        retrieved_count=len(sources),
-        answer=answer,
-        confidence=0.85,
-        sources=[s.model_dump() for s in sources],
-        processing_time_ms=total_time,
-        stage_timings_ms=stage_timings,
-        llm_model="qwen2.5:14b-instruct-q4_K_M",
-        embedding_model="sbintuitions/sarashina-embedding-v1-1b",
-    )
+        # Convert RAG sources to SourceReference format
+        sources = [
+            SourceReference(
+                document_id=str(source.document_id),
+                document_title=source.document_title or "Unknown Document",
+                page_number=source.page_number,
+                chunk_index=source.chunk_index,
+                chunk_text=source.text,
+                relevance_score=source.score,
+            )
+            for source in rag_result.sources
+        ]
 
-    db.add(query_record)
-    await db.commit()
+        # Build stage timings dict from RAGStageMetrics
+        stage_timings = {
+            stage.stage_name: int(stage.duration_ms)
+            for stage in rag_result.stage_timings
+        }
 
-    return QueryResponse(
-        query_id=str(query_record.id),
-        query=request.query,
-        answer=answer,
-        sources=sources,
-        processing_time_ms=total_time,
-        stage_timings_ms=stage_timings,
-        confidence=0.85,
-        timestamp=datetime.utcnow().isoformat(),
-    )
+        # Create query record for database
+        from backend.db.models import Query as QueryModel
+
+        query_record = QueryModel(
+            id=uuid.UUID(rag_result.query_id) if rag_result.query_id else uuid.uuid4(),
+            user_id=None,  # TODO: Get from authenticated user
+            query_text=request.query,
+            query_language=request.language,
+            query_type="hybrid",
+            top_k=request.top_k,
+            retrieved_count=len(sources),
+            answer=rag_result.answer,
+            confidence=rag_result.confidence,
+            sources=[s.model_dump() for s in sources],
+            processing_time_ms=int(rag_result.processing_time_ms),
+            stage_timings_ms=stage_timings,
+            llm_model=rag_result.llm_model,
+            embedding_model=rag_result.embedding_model,
+        )
+
+        db.add(query_record)
+        await db.commit()
+
+        return QueryResponse(
+            query_id=str(query_record.id),
+            query=request.query,
+            answer=rag_result.answer,
+            sources=sources,
+            processing_time_ms=int(rag_result.processing_time_ms),
+            stage_timings_ms=stage_timings,
+            confidence=rag_result.confidence,
+            timestamp=datetime.utcnow().isoformat(),
+        )
+
+    except RAGValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"message": e.message, "details": e.details},
+        )
+    except RAGProcessingError as e:
+        logger.error(f"RAG processing error: {e.message} (stage={e.stage})")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"message": e.message, "stage": e.stage, "details": e.details},
+        )
+    except RAGException as e:
+        logger.error(f"RAG error: {e.message}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"message": e.message, "details": e.details},
+        )
+    except Exception as e:
+        logger.exception(f"Unexpected error in query endpoint: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"message": "An unexpected error occurred", "error": str(e)},
+        )
 
 
 @router.get("/documents/search", response_model=SearchResponse)
