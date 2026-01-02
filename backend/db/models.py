@@ -64,14 +64,12 @@ class Document(UUIDMixin, TimestampMixin, Base):
     chunk_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     ocr_confidence: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     thumbnail_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    storage_path: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     owner_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), nullable=False, index=True
     )
     processing_completed_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
-    )
-    deleted_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True), nullable=True, index=True
     )
 
     # Relationships

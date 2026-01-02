@@ -57,13 +57,10 @@ async def upload_document(
     # Calculate hash
     file_hash = hashlib.sha256(content).hexdigest()
 
-    # Check for duplicates (only active documents, not soft-deleted)
+    # Check for duplicates
     from sqlalchemy import select
     result = await db.execute(
-        select(DocumentModel).where(
-            DocumentModel.file_hash == file_hash,
-            DocumentModel.deleted_at.is_(None)  # Only check active documents
-        )
+        select(DocumentModel).where(DocumentModel.file_hash == file_hash)
     )
     existing = result.scalar_one_or_none()
     if existing:
@@ -146,10 +143,7 @@ async def get_document(
         )
 
     result = await db.execute(
-        select(DocumentModel).where(
-            DocumentModel.id == doc_uuid,
-            DocumentModel.deleted_at.is_(None)
-        )
+        select(DocumentModel).where(DocumentModel.id == doc_uuid)
     )
     document = result.scalar_one_or_none()
 
@@ -234,8 +228,8 @@ async def list_documents(
     """List documents with pagination"""
     from sqlalchemy import select, func
 
-    # Build query - only show non-deleted documents
-    query = select(DocumentModel).where(DocumentModel.deleted_at.is_(None))
+    # Build query
+    query = select(DocumentModel)
 
     if status:
         query = query.where(DocumentModel.status == status)
@@ -263,37 +257,69 @@ async def delete_all_documents(
     db: AsyncSession = Depends(get_db_session),
 ):
     """
-    Delete all documents (soft delete)
+    Delete all documents (hard delete with cascade)
 
-    This will soft-delete ALL documents in the system by setting their deleted_at timestamp.
+    This will hard-delete ALL documents in the system, including:
+    - Files from MinIO (object storage)
+    - Chunks from Milvus (vector database)
+    - Document and chunk records from PostgreSQL (CASCADE)
+
     This operation is irreversible and should be used with caution.
     """
-    from sqlalchemy import select, func
+    from sqlalchemy import select
+    import asyncio
 
-    # Count active documents before deletion
-    count_query = select(func.count()).select_from(
-        select(DocumentModel).where(DocumentModel.deleted_at.is_(None)).subquery()
-    )
-    count_result = await db.execute(count_query)
-    total_count = count_result.scalar()
+    # Get all documents with their IDs and storage paths
+    result = await db.execute(select(DocumentModel))
+    documents = result.scalars().all()
 
-    if total_count == 0:
+    if not documents:
         return {
             "deleted_count": 0,
             "message": "No documents to delete"
         }
 
-    # Soft delete all active documents
-    from sqlalchemy import update
-    update_stmt = (
-        update(DocumentModel)
-        .where(DocumentModel.deleted_at.is_(None))
-        .values(deleted_at=datetime.utcnow())
-    )
-    await db.execute(update_stmt)
+    total_count = len(documents)
+    document_ids = [str(doc.id) for doc in documents]
+    storage_paths = [doc.storage_path for doc in documents]
+
+    # 1. Delete all files from MinIO in parallel
+    if storage_paths:
+        delete_tasks = []
+        for storage_path in storage_paths:
+            if storage_path:
+                try:
+                    from backend.storage.client import delete_file
+                    bucket, object_name = storage_path.split('/', 1)
+                    delete_tasks.append(delete_file(bucket, object_name))
+                except Exception as e:
+                    logger.warning(f"Failed to prepare MinIO deletion for {storage_path}: {e}")
+
+        if delete_tasks:
+            try:
+                await asyncio.gather(*delete_tasks, return_exceptions=True)
+                logger.info(f"Deleted {len(delete_tasks)} files from MinIO")
+            except Exception as e:
+                logger.warning(f"Some MinIO deletions failed: {e}")
+
+    # 2. Delete all chunks from Milvus (batch delete by document)
+    try:
+        from backend.db.vector.client import delete_by_document
+        for doc_id in document_ids:
+            try:
+                await delete_by_document(doc_id)
+            except Exception as e:
+                logger.warning(f"Failed to delete chunks for document {doc_id} from Milvus: {e}")
+        logger.info(f"Deleted chunks for {total_count} documents from Milvus")
+    except Exception as e:
+        logger.warning(f"Failed to delete chunks from Milvus: {e}")
+
+    # 3. Delete all documents from PostgreSQL (CASCADE auto-deletes chunk records)
+    for document in documents:
+        await db.delete(document)
     await db.commit()
 
-    logger.info(f"All documents deleted: {total_count} documents soft-deleted")
+    logger.info(f"All documents deleted: {total_count} documents hard-deleted")
 
     return {
         "deleted_count": total_count,
@@ -326,8 +352,27 @@ async def delete_document(
     if not document:
         raise NotFoundException("Document")
 
-    # Soft delete
-    document.deleted_at = datetime.utcnow()
+    # Hard delete with cascade cleanup across all systems
+    # 1. Delete from MinIO (object storage)
+    if document.storage_path:
+        try:
+            from backend.storage.client import delete_file
+            bucket, object_name = document.storage_path.split('/', 1)
+            await delete_file(bucket, object_name)
+            logger.info(f"Deleted file from MinIO: {document.storage_path}")
+        except Exception as e:
+            logger.warning(f"Failed to delete file from MinIO: {e}")
+
+    # 2. Delete from Milvus (vector database)
+    try:
+        from backend.db.vector.client import delete_by_document
+        await delete_by_document(str(document.id))
+        logger.info(f"Deleted chunks from Milvus: {document.id}")
+    except Exception as e:
+        logger.warning(f"Failed to delete chunks from Milvus: {e}")
+
+    # 3. Delete from PostgreSQL (CASCADE auto-deletes chunk records)
+    await db.delete(document)
     await db.commit()
 
     logger.info(f"Document deleted: {document_id}")

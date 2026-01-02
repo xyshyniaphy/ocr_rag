@@ -10,8 +10,7 @@ from sqlalchemy import select, func
 from backend.core.logging import get_logger
 from backend.core.config import settings
 from backend.db.session import get_db_session
-from backend.db.models import User as UserModel
-from backend.models.document import Document as DocumentModel
+from backend.db.models import User as UserModel, Document as DocumentModel
 from backend.db.models import Query as QueryModel
 
 logger = get_logger(__name__)
@@ -23,14 +22,13 @@ async def get_system_stats(
     db: AsyncSession = Depends(get_db_session),
 ):
     """Get system usage statistics"""
-    # Document stats - only count active (non-deleted) documents
+    # Document stats
     doc_result = await db.execute(
         select(
             func.count(DocumentModel.id).label("total"),
             func.sum(DocumentModel.chunk_count).label("total_chunks"),
             func.sum(DocumentModel.page_count).label("total_pages"),
         )
-        .where(DocumentModel.deleted_at.is_(None))
     )
     doc_stats = doc_result.first()
 

@@ -219,7 +219,6 @@ async def search_documents(
                 DocumentModel.filename.ilike(f"%{q}%"),
             )
         )
-        .where(DocumentModel.deleted_at.is_(None))
     )
 
     # Get total count
