@@ -231,8 +231,8 @@ async def list_documents(
     """List documents with pagination"""
     from sqlalchemy import select, func
 
-    # Build query
-    query = select(DocumentModel)
+    # Build query - only show non-deleted documents
+    query = select(DocumentModel).where(DocumentModel.deleted_at.is_(None))
 
     if status:
         query = query.where(DocumentModel.status == status)
@@ -253,6 +253,49 @@ async def list_documents(
         offset=offset,
         results=[DocumentResponse.from_db_model(doc) for doc in documents],
     )
+
+
+@router.delete("/all", status_code=status.HTTP_200_OK)
+async def delete_all_documents(
+    db: AsyncSession = Depends(get_db_session),
+):
+    """
+    Delete all documents (soft delete)
+
+    This will soft-delete ALL documents in the system by setting their deleted_at timestamp.
+    This operation is irreversible and should be used with caution.
+    """
+    from sqlalchemy import select, func
+
+    # Count active documents before deletion
+    count_query = select(func.count()).select_from(
+        select(DocumentModel).where(DocumentModel.deleted_at.is_(None)).subquery()
+    )
+    count_result = await db.execute(count_query)
+    total_count = count_result.scalar()
+
+    if total_count == 0:
+        return {
+            "deleted_count": 0,
+            "message": "No documents to delete"
+        }
+
+    # Soft delete all active documents
+    from sqlalchemy import update
+    update_stmt = (
+        update(DocumentModel)
+        .where(DocumentModel.deleted_at.is_(None))
+        .values(deleted_at=datetime.utcnow())
+    )
+    await db.execute(update_stmt)
+    await db.commit()
+
+    logger.info(f"All documents deleted: {total_count} documents soft-deleted")
+
+    return {
+        "deleted_count": total_count,
+        "message": f"Successfully deleted {total_count} document(s)"
+    }
 
 
 @router.delete("/{document_id}", status_code=status.HTTP_204_NO_CONTENT)

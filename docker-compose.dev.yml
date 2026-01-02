@@ -330,7 +330,7 @@ services:
       # Application
       - APP_NAME=Japanese OCR RAG System
       - DEBUG=true
-      - ENVIRONMENT=testing
+      - ENVIRONMENT=development
       - LOG_LEVEL=DEBUG
 
       # Security

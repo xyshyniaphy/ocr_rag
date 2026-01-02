@@ -23,13 +23,14 @@ async def get_system_stats(
     db: AsyncSession = Depends(get_db_session),
 ):
     """Get system usage statistics"""
-    # Document stats
+    # Document stats - only count active (non-deleted) documents
     doc_result = await db.execute(
         select(
             func.count(DocumentModel.id).label("total"),
             func.sum(DocumentModel.chunk_count).label("total_chunks"),
             func.sum(DocumentModel.page_count).label("total_pages"),
         )
+        .where(DocumentModel.deleted_at.is_(None))
     )
     doc_stats = doc_result.first()
 

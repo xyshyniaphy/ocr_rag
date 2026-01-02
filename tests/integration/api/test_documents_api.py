@@ -801,3 +801,261 @@ class TestDocumentProcessing:
         assert "stages" in status_data
         assert "upload" in status_data["stages"]
         assert status_data["stages"]["upload"]["status"] == "completed"
+
+
+@pytest.mark.integration
+class TestDeleteAllDocuments:
+    """Test DELETE /documents/all endpoint for bulk deletion"""
+
+    @pytest.mark.asyncio
+    async def test_delete_all_documents_with_documents(self, client: AsyncClient, auth_headers: dict, db_session):
+        """Test deleting all documents when documents exist"""
+        from backend.db.models import Document
+        from sqlalchemy import select, func
+        import uuid
+
+        # Create multiple test documents
+        doc_ids = []
+        for i in range(3):
+            doc = Document(
+                id=uuid.uuid4(),
+                owner_id=uuid.uuid4(),
+                filename=f"test_{i}.pdf",
+                file_size_bytes=1000,
+                file_hash=f"hash_{i}",
+                content_type="application/pdf",
+                status="completed",
+                page_count=1,
+                chunk_count=1,
+                deleted_at=None
+            )
+            db_session.add(doc)
+            doc_ids.append(doc.id)
+        await db_session.commit()
+
+        # Verify documents exist
+        result = await db_session.execute(
+            select(func.count()).select_from(
+                select(Document).where(Document.deleted_at.is_(None)).subquery()
+            )
+        )
+        initial_count = result.scalar()
+        assert initial_count >= 3
+
+        # Delete all documents
+        response = await client.delete(
+            "/api/v1/documents/all",
+            headers=auth_headers
+        )
+
+        assert response.status_code == 200
+        result = response.json()
+        assert "deleted_count" in result
+        assert "message" in result
+        assert result["deleted_count"] >= 3
+
+        # Verify all documents are soft-deleted
+        result2 = await db_session.execute(
+            select(func.count()).select_from(
+                select(Document).where(Document.deleted_at.is_(None)).subquery()
+            )
+        )
+        final_count = result2.scalar()
+        assert final_count == 0
+
+    @pytest.mark.asyncio
+    async def test_delete_all_documents_when_empty(self, client: AsyncClient, auth_headers: dict, db_session):
+        """Test deleting all documents when no documents exist"""
+        from backend.db.models import Document
+        from sqlalchemy import select, func
+
+        # Ensure no documents exist
+        await db_session.execute(
+            select(Document).where(Document.deleted_at.is_(None))
+        )
+
+        # Delete all documents
+        response = await client.delete(
+            "/api/v1/documents/all",
+            headers=auth_headers
+        )
+
+        assert response.status_code == 200
+        result = response.json()
+        assert "deleted_count" in result
+        assert "message" in result
+        assert result["deleted_count"] == 0
+        assert "No documents" in result["message"].lower()
+
+    @pytest.mark.asyncio
+    async def test_delete_all_only_soft_deletes(self, client: AsyncClient, auth_headers: dict, db_session):
+        """Test that delete_all only soft-deletes, doesn't remove records"""
+        from backend.db.models import Document
+        from sqlalchemy import select, func
+        import uuid
+
+        # Create test document
+        doc = Document(
+            id=uuid.uuid4(),
+            owner_id=uuid.uuid4(),
+            filename="test.pdf",
+            file_size_bytes=1000,
+            file_hash="hash123",
+            content_type="application/pdf",
+            status="completed",
+            page_count=1,
+            chunk_count=1,
+            deleted_at=None
+        )
+        db_session.add(doc)
+        await db_session.commit()
+
+        # Get total count (including soft-deleted)
+        result1 = await db_session.execute(select(func.count()).select_from(select(Document).subquery()))
+        total_before = result1.scalar()
+
+        # Delete all
+        await client.delete("/api/v1/documents/all", headers=auth_headers)
+
+        # Get total count after
+        result2 = await db_session.execute(select(func.count()).select_from(select(Document).subquery()))
+        total_after = result2.scalar()
+
+        # Total count should be the same (records still exist)
+        assert total_after == total_before
+
+        # But active count should be 0
+        result3 = await db_session.execute(
+            select(func.count()).select_from(
+                select(Document).where(Document.deleted_at.is_(None)).subquery()
+            )
+        )
+        active_count = result3.scalar()
+        assert active_count == 0
+
+    @pytest.mark.asyncio
+    async def test_delete_all_does_not_delete_already_deleted(self, client: AsyncClient, auth_headers: dict, db_session):
+        """Test that delete_all doesn't affect already soft-deleted documents"""
+        from backend.db.models import Document
+        from sqlalchemy import select, func
+        import uuid
+        from datetime import datetime
+
+        # Create active document
+        doc1 = Document(
+            id=uuid.uuid4(),
+            owner_id=uuid.uuid4(),
+            filename="active.pdf",
+            file_size_bytes=1000,
+            file_hash="hash1",
+            content_type="application/pdf",
+            status="completed",
+            page_count=1,
+            chunk_count=1,
+            deleted_at=None
+        )
+        db_session.add(doc1)
+
+        # Create already soft-deleted document
+        doc2 = Document(
+            id=uuid.uuid4(),
+            owner_id=uuid.uuid4(),
+            filename="deleted.pdf",
+            file_size_bytes=1000,
+            file_hash="hash2",
+            content_type="application/pdf",
+            status="completed",
+            page_count=1,
+            chunk_count=1,
+            deleted_at=datetime.utcnow()
+        )
+        db_session.add(doc2)
+        await db_session.commit()
+
+        # Delete all
+        response = await client.delete("/api/v1/documents/all", headers=auth_headers)
+        assert response.status_code == 200
+        result = response.json()
+
+        # Should only delete active documents
+        assert result["deleted_count"] == 1
+
+    @pytest.mark.asyncio
+    async def test_delete_all_response_structure(self, client: AsyncClient, auth_headers: dict):
+        """Test delete_all response has correct structure"""
+        response = await client.delete(
+            "/api/v1/documents/all",
+            headers=auth_headers
+        )
+
+        assert response.status_code == 200
+        result = response.json()
+
+        # Check required fields
+        assert "deleted_count" in result
+        assert "message" in result
+
+        # Check field types
+        assert isinstance(result["deleted_count"], int)
+        assert result["deleted_count"] >= 0
+        assert isinstance(result["message"], str)
+        assert len(result["message"]) > 0
+
+    @pytest.mark.asyncio
+    async def test_delete_all_then_list_returns_empty(self, client: AsyncClient, auth_headers: dict, db_session):
+        """Test that list returns empty after delete_all"""
+        from backend.db.models import Document
+        import uuid
+
+        # Create a document
+        doc = Document(
+            id=uuid.uuid4(),
+            owner_id=uuid.uuid4(),
+            filename="test.pdf",
+            file_size_bytes=1000,
+            file_hash="hash123",
+            content_type="application/pdf",
+            status="completed",
+            page_count=1,
+            chunk_count=1,
+            deleted_at=None
+        )
+        db_session.add(doc)
+        await db_session.commit()
+
+        # Verify it appears in list
+        list_response1 = await client.get("/api/v1/documents", headers=auth_headers)
+        assert list_response1.status_code == 200
+        result1 = list_response1.json()
+        initial_count = result1["total"]
+        assert initial_count >= 1
+
+        # Delete all
+        await client.delete("/api/v1/documents/all", headers=auth_headers)
+
+        # Verify list is now empty
+        list_response2 = await client.get("/api/v1/documents", headers=auth_headers)
+        assert list_response2.status_code == 200
+        result2 = list_response2.json()
+        assert result2["total"] == 0
+        assert len(result2["results"]) == 0
+
+    @pytest.mark.asyncio
+    async def test_delete_all_idempotent(self, client: AsyncClient, auth_headers: dict):
+        """Test that delete_all is idempotent (can be called multiple times)"""
+        # First delete
+        response1 = await client.delete("/api/v1/documents/all", headers=auth_headers)
+        assert response1.status_code == 200
+        result1 = response1.json()
+
+        # Second delete should also succeed
+        response2 = await client.delete("/api/v1/documents/all", headers=auth_headers)
+        assert response2.status_code == 200
+        result2 = response2.json()
+
+        # Both should return same structure
+        assert "deleted_count" in result1
+        assert "deleted_count" in result2
+
+        # Second delete should have 0 deleted_count
+        assert result2["deleted_count"] == 0

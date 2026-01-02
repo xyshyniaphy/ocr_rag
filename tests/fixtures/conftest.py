@@ -397,7 +397,7 @@ def test_env_vars():
 
     # Set test environment variables
     test_vars = {
-        "ENVIRONMENT": "testing",
+        "ENVIRONMENT": "development",
         "DEBUG": "True",
         "LOG_LEVEL": "DEBUG",
         "EMBEDDING_DEVICE": "cpu",

@@ -440,6 +440,59 @@ def render_settings():
     if st.button("Save Settings"):
         st.success("Settings saved!")
 
+    st.markdown("---")
+    st.markdown("### 🗂️ Data Management")
+
+    # Get current document count
+    try:
+        docs_response = api_request("GET", "/documents?limit=1")
+        doc_count = docs_response.get("total", 0)
+
+        # Always show document count
+        st.metric(label="Total Documents", value=f"{doc_count}", delta="Active documents")
+
+        # Only show Clear All section when there are documents
+        if doc_count > 0:
+            st.markdown("#### ⚠️ Danger Zone")
+            st.warning("This section contains destructive actions that cannot be undone.")
+
+            # Two-step confirmation
+            if st.button("🗑️ Clear All Documents", type="secondary"):
+                st.session_state.show_clear_confirm = True
+
+            if st.session_state.get("show_clear_confirm", False):
+                st.error("🚨 **WARNING**: This will PERMANENTLY delete ALL {doc_count} document(s)! This action cannot be undone.")
+
+                col1, col2, col3 = st.columns([1, 1, 2])
+
+                with col1:
+                    if st.button("✅ Yes, Clear All", type="primary", key="confirm_clear"):
+                        try:
+                            with st.spinner("Clearing all documents..."):
+                                result = api_request("DELETE", "/documents/all")
+
+                            deleted_count = result.get("deleted_count", 0)
+                            st.success(f"✅ Successfully deleted {deleted_count} document(s)")
+
+                            # Reset state
+                            st.session_state.show_clear_confirm = False
+
+                            # Rerun to refresh UI
+                            st.rerun()
+
+                        except Exception as e:
+                            st.error(f"❌ Failed to clear documents: {str(e)}")
+
+                with col2:
+                    if st.button("❌ Cancel", key="cancel_clear"):
+                        st.session_state.show_clear_confirm = False
+                        st.rerun()
+        else:
+            st.info("✅ No documents in system. Upload documents to get started.")
+
+    except Exception as e:
+        st.error(f"Failed to fetch document count: {str(e)}")
+
 
 # ============================================
 # MAIN APP
