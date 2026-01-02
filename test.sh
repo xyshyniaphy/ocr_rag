@@ -20,6 +20,7 @@ MAGENTA='\033[0;35m'
 NC='\033[0m' # No Color
 
 # Configuration
+PROJECT_NAME="ocr-rag-dev"
 TEST_IMAGE="ocr-rag-test:dev"
 TEST_CONTAINER="ocr-rag-test-dev"
 APP_CONTAINER="ocr-rag-app-dev"
@@ -107,7 +108,7 @@ ${CYAN}Markers:${NC}
 
 ${CYAN}Environment:${NC}
   Tests run inside Docker container: ${APP_CONTAINER}
-  Requires docker-compose services to be running
+  Requires docker compose services to be running
 
 EOF
 }
@@ -177,7 +178,7 @@ check_container() {
 # Start containers
 start_containers() {
     log_info "Starting Docker containers..."
-    docker-compose -f "$COMPOSE_FILE" up -d
+    docker compose -f "$COMPOSE_FILE" -p "$PROJECT_NAME" up -d
 
     log_info "Waiting for services to be healthy..."
     sleep 10
@@ -194,7 +195,7 @@ start_containers() {
 stop_containers() {
     if [ "$KEEP_CONTAINERS" = false ]; then
         log_info "Stopping test container..."
-        docker-compose -f "$COMPOSE_FILE" stop test
+        docker compose -f "$COMPOSE_FILE" -p "$PROJECT_NAME" stop test
         log_success "Test container stopped"
         log_info "Other containers are still running (use ./dev.sh down to stop all)"
     else
@@ -371,7 +372,7 @@ main() {
     # Check if test container is running, if not start it
     if ! check_container; then
         log_info "Test container not running, starting..."
-        docker-compose -f "$COMPOSE_FILE" up -d test
+        docker compose -f "$COMPOSE_FILE" -p "$PROJECT_NAME" up -d test
         sleep 5
     fi
 

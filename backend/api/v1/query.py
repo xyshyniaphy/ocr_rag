@@ -5,14 +5,15 @@ RAG query endpoints and search
 
 import uuid
 from datetime import datetime
-from typing import List
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from typing import List, Optional
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.logging import get_logger
-from backend.core.exceptions import ValidationException, RAGException
+from backend.core.exceptions import ValidationException, RAGException, AuthenticationException
+from backend.core.security import verify_access_token
 from backend.db.session import get_db_session
-from backend.db.models import Document as DocumentModel
+from backend.db.models import Document as DocumentModel, User as UserModel
 from backend.models.query import (
     QueryRequest,
     QueryResponse,
@@ -26,14 +27,49 @@ from backend.services.rag import (
     RAGValidationError,
     RAGProcessingError,
 )
+from sqlalchemy import select
 
 logger = get_logger(__name__)
 router = APIRouter()
 
 
+async def get_current_user_required(
+    authorization: Optional[str] = Header(None),
+    db: AsyncSession = Depends(get_db_session),
+) -> UserModel:
+    """
+    Required dependency to get current user from JWT token
+    Raises AuthenticationException if not authenticated
+    """
+    if not authorization:
+        raise AuthenticationException(message="Missing authorization header")
+
+    if not authorization.startswith("Bearer "):
+        raise AuthenticationException(message="Invalid authorization header format")
+
+    try:
+        token = authorization.split(" ")[1]
+        payload = verify_access_token(token)
+
+        result = await db.execute(
+            select(UserModel).where(UserModel.id == payload["sub"])
+        )
+        user = result.scalar_one_or_none()
+
+        if user and user.is_active:
+            return user
+
+        raise AuthenticationException(message="User not found or inactive")
+    except AuthenticationException:
+        raise
+    except Exception as e:
+        raise AuthenticationException(message=f"Authentication failed: {str(e)}")
+
+
 @router.post("/query", response_model=QueryResponse)
 async def query_rag(
     request: QueryRequest,
+    current_user: UserModel = Depends(get_current_user_required),
     db: AsyncSession = Depends(get_db_session),
 ):
     """
@@ -66,7 +102,7 @@ async def query_rag(
         rag_result = await rag_service.query(
             query=request.query,
             options=options,
-            user_id=None,  # TODO: Get from authenticated user
+            user_id=str(current_user.id),
         )
 
         # Convert RAG sources to SourceReference format
@@ -95,7 +131,7 @@ async def query_rag(
 
         query_record = QueryModel(
             id=uuid.UUID(rag_result.query_id) if rag_result.query_id else uuid.uuid4(),
-            user_id=None,  # TODO: Get from authenticated user
+            user_id=current_user.id,
             query_text=request.query,
             query_language=request.language,
             query_type="hybrid",
@@ -141,6 +177,14 @@ async def query_rag(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"message": e.message, "details": e.details},
         )
+    except AuthenticationException as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"message": e.message, "code": e.code, "details": e.details},
+        )
+    except HTTPException:
+        # Re-raise HTTPExceptions (including FastAPI validation errors)
+        raise
     except Exception as e:
         logger.exception(f"Unexpected error in query endpoint: {e}")
         raise HTTPException(

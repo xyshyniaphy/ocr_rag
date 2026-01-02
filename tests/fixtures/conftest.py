@@ -68,60 +68,20 @@ def pytest_collection_modifyitems(config, items):
 # ASYNCIO CONFIGURATION
 # ============================================
 
-@pytest.fixture(scope="session")
-def event_loop():
-    """Create event loop for async tests"""
-    loop = asyncio.get_event_loop_policy().new_event_loop()
-    yield loop
-    loop.close()
+# NOTE: initialize_database fixture removed from shared fixtures
+# Each test module should provide its own database initialization
+# to avoid event loop conflicts with session-scoped async fixtures
 
+# NOTE: event_loop fixture removed - pytest-asyncio manages event loops automatically
+# when using asyncio_mode=auto (set in pytest.ini)
 
 # ============================================
 # HTTP CLIENT FIXTURES
 # ============================================
 
-@pytest.fixture
-async def client() -> AsyncGenerator[AsyncClient, None]:
-    """
-    Test HTTP client for FastAPI app
-    Uses ASGI transport for testing without running server
-    """
-    async with AsyncClient(
-        transport=ASGITransport(app=app),
-        base_url="http://test"
-    ) as ac:
-        yield ac
-
-
-@pytest.fixture
-def auth_headers(client: AsyncClient, test_user: dict) -> dict:
-    """
-    Authentication headers for API requests
-    Creates a test user and returns JWT token in headers
-    """
-    # Register user
-    response = client.post(
-        "/api/v1/auth/register",
-        json=test_user
-    )
-    if response.status_code not in [200, 201]:
-        # User might already exist, try logging in
-        response = client.post(
-            "/api/v1/auth/login",
-            json={
-                "email": test_user["email"],
-                "password": test_user["password"]
-            }
-        )
-
-    if response.status_code in [200, 201]:
-        token = response.json().get("access_token")
-        if token:
-            return {"Authorization": f"Bearer {token}"}
-
-    # Return empty headers if auth fails
-    return {}
-
+# NOTE: client and auth_headers fixtures removed from shared fixtures
+# Integration tests have their own versions in tests/integration/api/conftest.py
+# This avoids fixture conflicts and event loop issues
 
 # ============================================
 # DATABASE FIXTURES
