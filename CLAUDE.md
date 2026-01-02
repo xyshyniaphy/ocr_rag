@@ -306,9 +306,27 @@ All tests MUST be executed inside the Docker container to ensure:
 - ✅ GPU access for model tests
 - ✅ No local machine setup required
 
+### Docker Test Infrastructure
+
+The project uses a dedicated Docker test container:
+
+**Components**:
+1. **Dockerfile.test** - Test image based on `ocr-rag-app:dev` with test dependencies
+2. **docker-compose.dev.yml test service** - Dedicated test container with `--profile test`
+3. **requirements-test.txt** - Test dependencies (pytest, pytest-asyncio, httpx, etc.)
+4. **pytest.ini** - Pytest configuration with markers, coverage, and asyncio settings
+
+**Test Container** (`ocr-rag-test-dev`):
+- Image: `ocr-rag-test:dev`
+- Profile: `test` (requires `--profile test` to start)
+- Depends on: postgres, milvus, minio, redis, ollama
+- Mounts: backend, frontend, tests, pytest.ini
+- GPU: Enabled
+- Command: `sleep infinity` (stays running for manual commands)
+
 ### Test Runner Script (`test.sh`)
 
-The `test.sh` script is the ONLY way to run tests:
+The `test.sh` script is the RECOMMENDED way to run tests:
 
 ```bash
 # Run all tests
@@ -454,6 +472,177 @@ Tests run automatically in CI/CD:
   uses: codecov/codecov-action@v3
 ```
 
+### Running Tests with Docker Compose
+
+For more control over test execution, you can use Docker Compose directly:
+
+```bash
+# Start test container (keeps running for interactive use)
+docker compose -f docker-compose.dev.yml --profile test up -d test
+
+# Run specific test file
+docker exec ocr-rag-test-dev pytest tests/integration/api/test_query_api.py -v
+
+# Run specific test class
+docker exec ocr-rag-test-dev pytest tests/integration/api/test_query_api.py::TestQueryAPIAuth -v
+
+# Run single test
+docker exec ocr-rag-test-dev pytest tests/integration/api/test_query_api.py::TestQueryAPIAuth::test_query_without_auth_returns_401 -v
+
+# Run with coverage
+docker exec ocr-rag-test-dev pytest tests/integration/api/test_query_api.py --cov=backend/api/v1/query --cov-report=html
+
+# Stop test container when done
+docker compose -f docker-compose.dev.yml --profile test down
+```
+
+**One-shot test execution** (container starts, runs tests, exits):
+```bash
+# Run specific tests
+docker compose -f docker-compose.dev.yml --profile test run --rm test pytest tests/unit/core/test_config.py -v
+
+# Run with coverage
+docker compose -f docker-compose.dev.yml --profile test run --rm test pytest --cov=backend --cov-report=html
+
+# Run with markers
+docker compose -f docker-compose.dev.yml --profile test run --rm test pytest -m "not gpu" -v
+```
+
+**Note**: When dev containers are already running, use `--no-deps` to avoid conflicts:
+```bash
+docker compose -f docker-compose.dev.yml --profile test run --no-deps --rm test pytest tests/unit/ -v
+```
+
+### Test Structure
+
+```
+tests/
+├── fixtures/              # Shared fixtures (conftest.py)
+│   └── conftest.py       # Pytest configuration and fixtures
+│
+├── unit/                  # Unit tests (fast, isolated)
+│   └── core/             # Core component tests
+│       ├── test_config.py    # Configuration tests
+│       ├── test_exceptions.py # Exception tests
+│       ├── test_logging.py    # Logging tests
+│       ├── test_security.py   # Security tests
+│       └── test_cache.py      # Cache tests
+│
+├── integration/           # Integration tests (medium speed)
+│   ├── api/              # API integration tests
+│   │   ├── test_documents_api.py    # Documents API tests
+│   │   └── test_query_api.py        # Query API tests
+│   ├── services/         # Service integration tests
+│   │   └── test_embedding_integration.py
+│   └── db/               # Database integration tests
+│       └── test_milvus_integration.py
+│
+├── e2e/                  # End-to-end tests (slow)
+│
+└── manual/               # Manual test scripts (existing)
+    ├── test_embedding.py
+    ├── test_ocr.py
+    └── test_reranker.py
+```
+
+### Test Categories
+
+| Category | Duration | When to Run | Coverage Target |
+|----------|----------|-------------|-----------------|
+| **Unit** | <5s | Every commit | 90%+ |
+| **Integration** | <30s | Every PR | 70%+ |
+| **E2E** | <2min | Pre-merge | Critical paths |
+| **Performance** | <10min | Nightly | N/A |
+
+### Test Markers
+
+```bash
+# Run tests by marker
+pytest -m unit           # Unit tests only
+pytest -m integration    # Integration tests only
+pytest -m e2e           # E2E tests only
+pytest -m "not slow"    # Skip slow tests
+pytest -m gpu           # GPU tests only
+pytest -m external      # Tests with external services
+pytest -m database       # Tests requiring database access
+```
+
+**Available Markers** (defined in `pytest.ini`):
+- `unit` - Unit tests (fast, isolated)
+- `integration` - Integration tests (medium speed)
+- `e2e` - End-to-end tests (slow)
+- `slow` - Slow running tests
+- `gpu` - Tests requiring GPU
+- `external` - Tests requiring external services
+- `asyncio` - Async tests
+- `database` - Tests requiring database access
+
+### Coverage Reports
+
+```bash
+# Generate coverage report
+./test.sh --coverage
+
+# View HTML report
+open htmlcov/index.html
+
+# View in terminal
+cat test-results/coverage.json | jq
+```
+
+### Writing Tests
+
+When writing new tests, follow these guidelines:
+
+1. **Use Docker**: Always write tests to run inside Docker
+2. **Use Fixtures**: Leverage fixtures in `tests/fixtures/conftest.py`
+3. **Mark Tests**: Add appropriate markers (`@pytest.mark.unit`, `@pytest.mark.gpu`, etc.)
+4. **Mock External Services**: Mock external APIs, but use real database services
+5. **Test Isolation**: Each test should be independent
+
+Example test:
+
+```python
+import pytest
+from backend.core.config import settings
+
+@pytest.mark.unit
+class TestSettings:
+    def test_default_app_name(self):
+        """Test default APP_NAME"""
+        assert settings.APP_NAME == "Japanese OCR RAG System"
+
+    @pytest.mark.gpu
+    def test_embedding_device(self):
+        """Test embedding device configuration"""
+        assert settings.EMBEDDING_DEVICE == "cuda:0"
+```
+
+### Test Fixtures
+
+Available fixtures (in `tests/fixtures/conftest.py`):
+
+- `client` - HTTPX AsyncClient for API testing (uses ASGI transport)
+- `auth_headers` - Authentication headers
+- `db_session` - Database session with auto-rollback
+- `test_user` - Test user data
+- `sample_pdf` - Sample PDF bytes
+- `embedding_service` - Embedding service (CPU mode)
+- `mock_llm_response` - Mock LLM response
+
+### CI/CD Integration
+
+Tests run automatically in CI/CD:
+
+```yaml
+# .github/workflows/test.yml
+- name: Run tests
+  run: ./test.sh --coverage
+
+- name: Upload coverage
+  uses: codecov/codecov-action@v3
+```
+
 ### Troubleshooting Tests
 
 **Issue**: Tests fail with "Module not found"
@@ -467,6 +656,17 @@ Tests run automatically in CI/CD:
 
 **Issue**: Import errors
 - **Fix**: Ensure `PYTHONPATH=/app` is set (automatic in Docker)
+
+**Issue**: "All connection attempts failed" when running tests
+- **Cause**: Test container can't connect to dependencies
+- **Fix**: Ensure all services are running: `./dev.sh up`
+- **Fix**: Use `--profile test` to start test container with dependencies
+
+**Issue**: Permission denied on test files
+- **Fix**: Check file permissions: `chmod 644 tests/integration/api/test_*.py`
+
+**Issue**: Pytest markers not found
+- **Fix**: Add missing marker to `pytest.ini` [markers] section
 
 ## Troubleshooting
 

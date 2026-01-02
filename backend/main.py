@@ -108,15 +108,32 @@ async def app_exception_handler(request: Request, exc: AppException) -> JSONResp
 @app.exception_handler(StarletteHTTPException)
 async def http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
     """Handle HTTP exceptions"""
+    # Handle both string and dict details
+    if isinstance(exc.detail, dict):
+        # Detail is already a dict (e.g., {"message": "...", "details": {...}})
+        error_code = exc.detail.get("code", "http_error")
+        error_message = exc.detail.get("message", str(exc.detail))
+        error_details = {k: v for k, v in exc.detail.items() if k not in ("code", "message")}
+    else:
+        # Detail is a string
+        error_code = str(exc.detail).lower().replace(" ", "_")
+        error_message = str(exc.detail)
+        error_details = None
+
+    content = {
+        "error": {
+            "code": error_code,
+            "message": error_message,
+            "timestamp": None,
+        }
+    }
+
+    if error_details:
+        content["error"]["details"] = error_details
+
     return JSONResponse(
         status_code=exc.status_code,
-        content={
-            "error": {
-                "code": exc.detail.lower().replace(" ", "_"),
-                "message": str(exc.detail),
-                "timestamp": None,
-            }
-        },
+        content=content,
     )
 
 

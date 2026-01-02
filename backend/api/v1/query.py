@@ -62,7 +62,7 @@ async def query_rag(
         )
 
         # Get RAG service and process query
-        rag_service = await get_rag_service()
+        rag_service = get_rag_service()
         rag_result = await rag_service.query(
             query=request.query,
             options=options,

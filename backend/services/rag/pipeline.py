@@ -346,7 +346,7 @@ class RAGService:
                     success=True,
                     metadata={
                         "llm_model": llm_response.model,
-                        "tokens": llm_response.total_tokens,
+                        "processing_time_ms": llm_response.processing_time_ms,
                     },
                 )
             )
@@ -418,14 +418,12 @@ class RAGService:
             use_cache=use_cache,
         )
 
-        if method == "hybrid":
-            return await self._retrieval_service.hybrid_retrieve(query, options)
-        elif method == "vector":
-            return await self._retrieval_service.vector_retrieve(query, options)
-        elif method == "keyword":
-            return await self._retrieval_service.keyword_retrieve(query, options)
-        else:
-            raise RAGValidationError(f"Invalid retrieval method: {method}")
+        # Use the generic retrieve method with method parameter
+        return await self._retrieval_service.retrieve(
+            query=query,
+            method=method,
+            options=options,
+        )
 
     async def _rerank(
         self,
