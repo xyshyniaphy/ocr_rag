@@ -66,6 +66,13 @@ ocr_rag/
 ./dev.sh down     # Stop all services
 ./dev.sh help     # Show all commands
 
+# Testing (IMPORTANT: All tests MUST run inside Docker)
+./test.sh         # Run all tests in Docker
+./test.sh unit    # Run unit tests only
+./test.sh integration --coverage  # Run integration tests with coverage
+./test.sh -m "not slow"  # Run fast tests only
+./test.sh --help   # Show all test options
+
 # Production
 ./prod.sh         # Start production environment (when available)
 ```
@@ -285,6 +292,181 @@ Container File System (Volume Mounts - Read-Write):
 2. **Restart containers**: `./dev.sh restart`
 3. **Hot reload**: Development mode auto-reloads on Python changes
 4. **View logs**: `./dev.sh logs` or `./dev.sh logs app`
+5. **Run tests**: `./test.sh unit` (always run tests in Docker)
+
+---
+
+## Testing
+
+**CRITICAL POLICY: ALL TESTS MUST RUN INSIDE DOCKER**
+
+All tests MUST be executed inside the Docker container to ensure:
+- ✅ Consistent test environment
+- ✅ Access to all dependencies (PostgreSQL, Milvus, Redis, Ollama)
+- ✅ GPU access for model tests
+- ✅ No local machine setup required
+
+### Test Runner Script (`test.sh`)
+
+The `test.sh` script is the ONLY way to run tests:
+
+```bash
+# Run all tests
+./test.sh
+
+# Run specific test types
+./test.sh unit              # Unit tests only (fast, <5s)
+./test.sh integration       # Integration tests (medium, <30s)
+./test.sh e2e              # End-to-end tests (slow, <2min)
+
+# With coverage report
+./test.sh --coverage
+./test.sh unit --coverage
+
+# With markers
+./test.sh -m "not slow"     # Skip slow tests
+./test.sh -m "unit"         # Unit tests only
+./test.sh -m "gpu"          # GPU tests only
+
+# Other options
+./test.sh --verbose         # Verbose output
+./test.sh --parallel        # Run tests in parallel
+./test.sh --build           # Rebuild containers before testing
+./test.sh --keep            # Keep containers running after tests
+
+# Show help
+./test.sh --help
+```
+
+### Test Structure
+
+```
+tests/
+├── fixtures/              # Shared fixtures (conftest.py)
+│   └── conftest.py       # Pytest configuration and fixtures
+│
+├── unit/                  # Unit tests (fast, isolated)
+│   └── core/             # Core component tests
+│       ├── test_config.py    # Configuration tests
+│       ├── test_exceptions.py # Exception tests
+│       ├── test_logging.py    # Logging tests
+│       ├── test_security.py   # Security tests
+│       └── test_cache.py      # Cache tests
+│
+├── integration/           # Integration tests (medium speed)
+│   ├── services/         # Service integration tests
+│   │   └── test_embedding_integration.py
+│   └── db/               # Database integration tests
+│       └── test_milvus_integration.py
+│
+├── e2e/                  # End-to-end tests (slow)
+│
+└── manual/               # Manual test scripts (existing)
+    ├── test_embedding.py
+    ├── test_ocr.py
+    └── test_reranker.py
+```
+
+### Test Categories
+
+| Category | Duration | When to Run | Coverage Target |
+|----------|----------|-------------|-----------------|
+| **Unit** | <5s | Every commit | 90%+ |
+| **Integration** | <30s | Every PR | 70%+ |
+| **E2E** | <2min | Pre-merge | Critical paths |
+| **Performance** | <10min | Nightly | N/A |
+
+### Test Markers
+
+```bash
+# Run tests by marker
+pytest -m unit           # Unit tests only
+pytest -m integration    # Integration tests only
+pytest -m e2e           # E2E tests only
+pytest -m "not slow"    # Skip slow tests
+pytest -m gpu           # GPU tests only
+pytest -m external      # Tests with external services
+```
+
+### Coverage Reports
+
+```bash
+# Generate coverage report
+./test.sh --coverage
+
+# View HTML report
+open htmlcov/index.html
+
+# View in terminal
+cat test-results/coverage.json | jq
+```
+
+### Writing Tests
+
+When writing new tests, follow these guidelines:
+
+1. **Use Docker**: Always write tests to run inside Docker
+2. **Use Fixtures**: Leverage fixtures in `tests/fixtures/conftest.py`
+3. **Mark Tests**: Add appropriate markers (`@pytest.mark.unit`, `@pytest.mark.gpu`, etc.)
+4. **Mock External Services**: Mock external APIs, but use real database services
+5. **Test Isolation**: Each test should be independent
+
+Example test:
+
+```python
+import pytest
+from backend.core.config import settings
+
+@pytest.mark.unit
+class TestSettings:
+    def test_default_app_name(self):
+        """Test default APP_NAME"""
+        assert settings.APP_NAME == "Japanese OCR RAG System"
+
+    @pytest.mark.gpu
+    def test_embedding_device(self):
+        """Test embedding device configuration"""
+        assert settings.EMBEDDING_DEVICE == "cuda:0"
+```
+
+### Test Fixtures
+
+Available fixtures (in `tests/fixtures/conftest.py`):
+
+- `client` - HTTPX AsyncClient for API testing
+- `auth_headers` - Authentication headers
+- `db_session` - Database session with auto-rollback
+- `test_user` - Test user data
+- `sample_pdf` - Sample PDF bytes
+- `embedding_service` - Embedding service (CPU mode)
+- `mock_llm_response` - Mock LLM response
+
+### CI/CD Integration
+
+Tests run automatically in CI/CD:
+
+```yaml
+# .github/workflows/test.yml
+- name: Run tests
+  run: ./test.sh --coverage
+
+- name: Upload coverage
+  uses: codecov/codecov-action@v3
+```
+
+### Troubleshooting Tests
+
+**Issue**: Tests fail with "Module not found"
+- **Fix**: Tests must run in Docker: `./test.sh`
+
+**Issue**: GPU tests fail on CPU-only machine
+- **Fix**: Skip GPU tests: `./test.sh -m "not gpu"`
+
+**Issue**: Database connection errors
+- **Fix**: Start services first: `./dev.sh up`
+
+**Issue**: Import errors
+- **Fix**: Ensure `PYTHONPATH=/app` is set (automatic in Docker)
 
 ## Troubleshooting
 

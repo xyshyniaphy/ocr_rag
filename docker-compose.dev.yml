@@ -309,6 +309,114 @@ services:
     profiles:
       - monitoring
 
+  # ============================================
+  # TEST (Dedicated test runner container)
+  # ============================================
+  test:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    image: ocr-rag-test:dev
+    container_name: ocr-rag-test-dev
+    hostname: test
+    restart: "no"
+    environment:
+      # Application
+      - APP_NAME=Japanese OCR RAG System
+      - DEBUG=true
+      - ENVIRONMENT=testing
+      - LOG_LEVEL=DEBUG
+
+      # Security
+      - SECRET_KEY=test-secret-key-for-testing-only-12345
+      - JWT_ACCESS_TOKEN_EXPIRE_MINUTES=60
+      - JWT_REFRESH_TOKEN_EXPIRE_DAYS=30
+
+      # Database
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=raguser
+      - POSTGRES_PASSWORD=rag_password_dev
+      - POSTGRES_DB=rag_metadata
+
+      # Milvus
+      - MILVUS_HOST=milvus
+      - MILVUS_PORT=19530
+
+      # MinIO
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin
+      - MINIO_USE_SSL=false
+
+      # Redis
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=
+
+      # Ollama
+      - OLLAMA_HOST=ollama:11434
+      - OLLAMA_MODEL=qwen3:4b
+
+      # OCR
+      - OCR_ENGINE=yomitoku
+      - OCR_CONFIDENCE_THRESHOLD=0.85
+
+      # Embedding
+      - EMBEDDING_MODEL=sbintuitions/sarashina-embedding-v1-1b
+      - EMBEDDING_DEVICE=cuda:0
+      - EMBEDDING_BATCH_SIZE=64
+
+      # Reranker
+      - RERANKER_MODEL=nvidia/Llama-3.2-NV-RerankQA-1B-v2
+      - RERANKER_DEVICE=cuda:0
+
+      # GPU
+      - CUDA_VISIBLE_DEVICES=0
+
+      # Test settings
+      - PYTHONPATH=/app
+      - PYTEST_ADDOPTS=-v
+
+    volumes:
+      # Mount application code
+      - ./backend:/app/backend:ro
+      - ./frontend:/app/frontend:ro
+      # Mount tests directory
+      - ./tests:/app/tests:ro
+      # Test results (read-write)
+      - ./test-results:/app/test-results:rw
+      - ./htmlcov:/app/htmlcov:rw
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      milvus:
+        condition: service_healthy
+      minio:
+        condition: service_started
+      redis:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+
+    # No default command - will be overridden by test.sh or run with docker-compose run
+    command: ["sleep", "infinity"]
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+    networks:
+      - ocr-rag-net
+
+    profiles:
+      - test
+
 networks:
   ocr-rag-net:
     driver: bridge

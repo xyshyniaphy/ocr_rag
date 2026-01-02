@@ -1,0 +1,58 @@
+# ========================================
+# Dockerfile.test
+# Test image - Based on ocr-rag:app
+# Inherits all app dependencies and adds test requirements
+# ========================================
+
+FROM ocr-rag-app:dev
+
+# ========================================
+# Install test dependencies
+# ========================================
+
+# Switch to root for installation
+USER root
+
+# Set working directory
+WORKDIR /app
+
+# Install uv (fast Python package installer) if not already installed
+RUN which uv || (curl -LsSf https://astral.sh/uv/install.sh | sh && \
+    mv /root/.local/bin/uv /usr/local/bin/uv)
+
+# Copy test requirements
+COPY requirements-test.txt /app/
+
+# Install test dependencies
+RUN uv pip install --no-cache-dir -r requirements-test.txt
+
+# ========================================
+# Copy test files and configuration
+# ========================================
+
+# Copy test files
+COPY --chown=appuser:appuser tests/ /app/tests/
+COPY pytest.ini /app/pytest.ini
+
+# Create test results directories with proper permissions
+RUN mkdir -p /app/test-results /app/htmlcov && \
+    chown -R appuser:appuser /app/test-results /app/htmlcov && \
+    chmod 644 /app/pytest.ini && \
+    chown appuser:appuser /app/pytest.ini
+
+# ========================================
+# Final configuration
+# ========================================
+
+# Switch to non-root user
+USER appuser
+
+# Set test environment variables
+ENV PYTEST_ADDOPTS="-v"
+
+# Expose test results as volumes
+VOLUME ["/app/test-results", "/app/htmlcov"]
+
+# Default command - run pytest
+# Can be overridden with docker run/test.sh arguments
+CMD ["pytest", "tests/", "-v", "--tb=short"]
