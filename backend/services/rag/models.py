@@ -183,7 +183,7 @@ class RAGPipelineConfig(BaseModel):
     min_score: float = Field(default=0.0, description="Minimum relevance score")
 
     # Reranking settings
-    enable_reranking: bool = Field(default=True, description="Enable reranking")
+    enable_reranking: bool = Field(default=False, description="Enable reranking (disabled due to model issue)")
     rerank_top_k: int = Field(default=10, description="Documents to keep after reranking")
 
     # LLM settings
@@ -208,7 +208,7 @@ class RAGPipelineConfig(BaseModel):
                 "retrieval_method": "hybrid",
                 "retrieval_top_k": 20,
                 "min_score": 0.0,
-                "enable_reranking": True,
+                "enable_reranking": False,  # Temporarily disabled due to reranker model issue
                 "rerank_top_k": 10,
                 "llm_temperature": 0.1,
                 "llm_max_tokens": 2048,

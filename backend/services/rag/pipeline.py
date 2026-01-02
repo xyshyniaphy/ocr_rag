@@ -375,7 +375,7 @@ class RAGService:
         # Build result
         result = RAGResult(
             query=query,
-            answer=llm_response.content,
+            answer=llm_response.answer,  # RAGResponse has 'answer' not 'content'
             sources=sources if opts.include_sources else [],
             query_id=query_id,
             processing_time_ms=round(total_time_ms, 2),
@@ -383,7 +383,7 @@ class RAGService:
             confidence=round(confidence, 3) if confidence else None,
             llm_model=llm_response.model,
             embedding_model=settings.EMBEDDING_MODEL,
-            reranker_model=settings.RERANKER_MODEL_NAME if opts.rerank else None,
+            reranker_model=settings.RERANKER_MODEL if opts.rerank else None,  # Fixed: RERANKER_MODEL not RERANKER_MODEL_NAME
             metadata={
                 "user_id": user_id,
                 "options": opts.model_dump(),

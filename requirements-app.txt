@@ -47,6 +47,7 @@ kombu==5.3.4
 # LLM CLIENT
 # ============================================
 ollama==0.1.6
+openai>=1.0.0  # For GLM API (OpenAI-compatible)
 
 # ============================================
 # SECURITY AND AUTHENTICATION

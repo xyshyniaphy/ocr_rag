@@ -67,7 +67,7 @@ class Settings(BaseSettings):
     CELERY_BROKER_URL: str = "redis://localhost:6379/1"
     CELERY_RESULT_BACKEND: str = "redis://localhost:6379/2"
 
-    # Ollama (LLM Service)
+    # Ollama (LLM Service - Local, fallback)
     OLLAMA_HOST: str = "localhost:11434"
     OLLAMA_MODEL: str = "qwen3:4b"  # Qwen3 4B parameters (default model)
     OLLAMA_NUM_CTX: int = 32768  # Context window size (tokens)
@@ -76,6 +76,16 @@ class Settings(BaseSettings):
     OLLAMA_TOP_K: int = 40  # Top-k sampling
     OLLAMA_NUM_PREDICT: int = 2048  # Max tokens to generate
     OLLAMA_REPEAT_PENALTY: float = 1.1  # Repeat penalty (1.0 = no penalty)
+
+    # GLM (LLM Service - Cloud, recommended)
+    LLM_PROVIDER: str = "glm"  # "glm" or "ollama"
+    GLM_API_KEY: Optional[str] = None  # GLM API key from https://z.ai/ (required if LLM_PROVIDER=glm)
+    GLM_BASE_URL: str = "https://api.z.ai/api/paas/v4/"  # International endpoint
+    GLM_MODEL: str = "GLM-4.5-Air"  # Recommended: GLM-4.5-Air (fast), GLM-4.5, GLM-4.7
+    GLM_TEMPERATURE: float = 0.1  # Default temperature (0.0-1.0)
+    GLM_TOP_P: float = 0.9  # Nucleus sampling
+    GLM_TOP_K: int = 40  # Top-k sampling
+    GLM_MAX_TOKENS: int = 2048  # Max tokens to generate
 
     # OCR
     OCR_ENGINE: str = "yomitoku"

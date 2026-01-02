@@ -1,6 +1,6 @@
 """
 LLM Service
-Main service for LLM generation using Qwen models via Ollama
+Main service for LLM generation using GLM or Ollama
 
 This service provides:
 - Chat completions with conversation history
@@ -8,10 +8,14 @@ This service provides:
 - RAG-augmented generation with retrieved contexts
 - Streaming responses
 - Model management and health checks
+
+Supported LLM providers:
+- GLM-4.5 Air via Z.ai international API (default, recommended)
+- Ollama (local models, fallback)
 """
 
 import time
-from typing import List, Optional, Dict, Any, Sequence
+from typing import List, Optional, Dict, Any, Sequence, Union
 
 from backend.core.logging import get_logger
 from backend.core.config import settings
@@ -30,6 +34,7 @@ from backend.services.llm.models import (
     LLMModelNotFoundError,
 )
 from backend.services.llm.ollama_client import OllamaClient
+from backend.services.llm.glm_client import GLMClient
 
 logger = get_logger(__name__)
 
@@ -53,8 +58,13 @@ class LLMService:
     """
     Main LLM service for text generation
 
-    This service manages the Ollama client and provides a high-level API
-    for LLM generation tasks including chat, completion, and RAG.
+    This service manages both GLM and Ollama clients and provides a
+    unified API for LLM generation tasks including chat, completion, and RAG.
+
+    Provider Selection:
+    - Uses GLM-4.5 Air by default (fast, cost-effective)
+    - Falls back to Ollama if GLM is unavailable
+    - Provider can be specified via LLM_PROVIDER env variable
 
     Example:
         ```python
@@ -76,29 +86,58 @@ class LLMService:
 
     def __init__(
         self,
-        client: Optional[OllamaClient] = None,
+        client: Optional[Union[GLMClient, OllamaClient]] = None,
         model: Optional[str] = None,
         default_options: Optional[LLMOptions] = None,
+        provider: Optional[str] = None,
     ):
         """
         Initialize the LLM service
 
         Args:
-            client: OllamaClient instance (created automatically if None)
+            client: GLMClient or OllamaClient instance (created automatically if None)
             model: Default model name (uses config default if None)
             default_options: Default generation options
+            provider: LLM provider - "glm" or "ollama" (uses config default if None)
         """
-        self.client = client or OllamaClient()
-        self.model = model or settings.OLLAMA_MODEL
-        self.default_options = default_options or LLMOptions(
-            temperature=settings.OLLAMA_TEMPERATURE,
-            num_ctx=settings.OLLAMA_NUM_CTX,
-            stream=False,
-        )
+        provider = provider or settings.LLM_PROVIDER
+
+        # Create client based on provider
+        if client is None:
+            if provider == "glm":
+                self.client = GLMClient()
+                self.model = model or settings.GLM_MODEL
+            elif provider == "ollama":
+                self.client = OllamaClient()
+                self.model = model or settings.OLLAMA_MODEL
+            else:
+                logger.warning(f"Unknown provider '{provider}', defaulting to GLM")
+                self.client = GLMClient()
+                self.model = model or settings.GLM_MODEL
+        else:
+            self.client = client
+            self.model = model or settings.GLM_MODEL if provider == "glm" else settings.OLLAMA_MODEL
+
+        # Set default options based on provider
+        if default_options:
+            self.default_options = default_options
+        elif provider == "glm":
+            self.default_options = LLMOptions(
+                temperature=settings.GLM_TEMPERATURE if hasattr(settings, 'GLM_TEMPERATURE') else 0.1,
+                stream=False,
+            )
+        else:  # ollama
+            self.default_options = LLMOptions(
+                temperature=settings.OLLAMA_TEMPERATURE,
+                num_ctx=settings.OLLAMA_NUM_CTX,
+                stream=False,
+            )
+
+        self.provider = provider
         self._is_initialized = False
 
         logger.info(
-            f"LLMService initialized (model={self.model}, "
+            f"LLMService initialized (provider={provider}, model={self.model}, "
             f"temperature={self.default_options.temperature})"
         )
 
@@ -119,16 +158,28 @@ class LLMService:
 
             # Check connection
             health = await self.client.health_check()
-            if health["status"] != "healthy":
-                raise LLMConnectionError(
-                    "Ollama service is not healthy",
-                    details=health,
-                )
 
-            # Check model availability
-            if not await self.client.check_model(self.model):
-                logger.warning(f"Model '{self.model}' not available, attempting to pull...")
-                await self.client.pull_model(self.model)
+            # Handle different health check return types based on provider
+            if self.provider == "glm":
+                # GLM returns bool
+                if not health:
+                    raise LLMConnectionError(
+                        "GLM API is not accessible",
+                        details={"health_check_result": health},
+                    )
+            else:  # ollama
+                # Ollama returns dict with "status" key
+                if health["status"] != "healthy":
+                    raise LLMConnectionError(
+                        "Ollama service is not healthy",
+                        details=health,
+                    )
+
+            # Check model availability (Ollama only - GLM doesn't need this)
+            if self.provider != "glm":
+                if not await self.client.check_model(self.model):
+                    logger.warning(f"Model '{self.model}' not available, attempting to pull...")
+                    await self.client.pull_model(self.model)
 
             self._is_initialized = True
 
@@ -334,6 +385,11 @@ class LLMService:
             Message(role="user", content=query),
         ]
 
+        # Debug: Log messages
+        logger.info(f"Built {len(messages)} messages for RAG generation")
+        for i, msg in enumerate(messages):
+            logger.info(f"  Message {i}: type={type(msg).__name__}, role={msg.role if hasattr(msg, 'role') else 'N/A'}")
+
         logger.info(
             f"RAG generation: model={model}, "
             f"contexts={len(contexts)}, query_length={len(query)}"
@@ -341,6 +397,7 @@ class LLMService:
 
         try:
             # Generate response
+            logger.info(f"About to call self.client.chat(), client type: {type(self.client)}, provider: {self.provider}")
             llm_response = await self.client.chat(
                 messages=messages,
                 model=model,

@@ -127,7 +127,7 @@ User Query → Embedding → Hybrid Search (Milvus + PostgreSQL BM25)
 | OCR | YomiToku (Japanese optimized) |
 | Embedding | Sarashina-Embedding-v1-1B (1792D) |
 | Reranker | Llama-3.2-NV-RerankQA-1B-v2 |
-| LLM | Qwen2.5-14B (Ollama) |
+| LLM | **GLM-4.5-Air** (default, cloud) or Qwen2.5-14B (Ollama, fallback) |
 | Vector DB | Milvus 2.4+ |
 | Metadata DB | PostgreSQL 16+ |
 | Object Storage | MinIO |
@@ -143,8 +143,59 @@ All configuration is managed through:
 Key environment variables:
 - `SECRET_KEY` - JWT signing key (generate with `openssl rand -hex 32`)
 - `POSTGRES_PASSWORD` - PostgreSQL password
-- `OLLAMA_HOST` - Ollama LLM server address
+- `LLM_PROVIDER` - LLM provider: `glm` (default, cloud) or `ollama` (local)
+- `GLM_API_KEY` - GLM API key from https://z.ai/
+- `GLM_MODEL` - GLM model: `GLM-4.5-Air` (recommended), `GLM-4.5`, `GLM-4.7`
+- `GLM_BASE_URL` - GLM API endpoint: `https://api.z.ai/api/paas/v4/` (international)
 - `OCR_ENGINE` - OCR engine selection (`yomitoku`)
+
+## LLM Providers
+
+The system supports two LLM providers:
+
+### GLM (Default, Recommended)
+- **Provider**: Z.ai international platform
+- **Models**: GLM-4.5-Air (fast, cost-effective), GLM-4.5, GLM-4.7
+- **Advantages**:
+  - ✅ Fast response times (cloud API)
+  - ✅ No local GPU required
+  - ✅ OpenAI-compatible API
+  - ✅ Cost-effective for production
+  - ✅ High-quality Japanese responses
+- **Configuration**:
+  ```bash
+  LLM_PROVIDER=glm
+  GLM_API_KEY=your-api-key-from-z.ai
+  GLM_MODEL=GLM-4.5-Air
+  GLM_BASE_URL=https://api.z.ai/api/paas/v4/
+  ```
+- **Get API Key**: https://z.ai/ (international platform, 1M+ free tokens)
+
+### Ollama (Fallback, Local)
+- **Provider**: Local Ollama server
+- **Models**: Qwen2.5, Qwen3, and other Ollama models
+- **Advantages**:
+  - ✅ Privacy (local processing)
+  - ✅ No API costs
+  - ✅ Air-gapped deployment
+- **Disadvantages**:
+  - ⚠️ Slower response times
+  - ⚠️ Requires local GPU
+  - ⚠️ Limited by hardware
+- **Configuration**:
+  ```bash
+  LLM_PROVIDER=ollama
+  OLLAMA_HOST=ollama:11434
+  OLLAMA_MODEL=qwen2.5:14b-instruct-q4_K_M
+  ```
+
+### Switching Providers
+
+Set the `LLM_PROVIDER` environment variable:
+- `glm` - Use GLM cloud API (default, recommended)
+- `ollama` - Use local Ollama (fallback)
+
+The system automatically selects the appropriate client based on this setting.
 
 ## Module Import Conventions
 
@@ -183,6 +234,7 @@ Key environment variables:
    - Embedding in `services/embedding/`
    - Retrieval (vector + keyword) in `services/retrieval/`
    - Reranking in `services/reranker/`
+   - LLM generation in `services/llm/` (supports GLM and Ollama)
    - RAG pipeline in `services/rag/`
 
 4. **Database Access**: Use Repository pattern

@@ -78,6 +78,7 @@ async def query_rag(
                 chunk_index=source.chunk_index,
                 chunk_text=source.text,
                 relevance_score=source.score,
+                rerank_score=source.rerank_score,  # Add rerank_score
             )
             for source in rag_result.sources
         ]
@@ -90,6 +91,7 @@ async def query_rag(
 
         # Create query record for database
         from backend.db.models import Query as QueryModel
+        import json
 
         query_record = QueryModel(
             id=uuid.UUID(rag_result.query_id) if rag_result.query_id else uuid.uuid4(),
@@ -101,9 +103,9 @@ async def query_rag(
             retrieved_count=len(sources),
             answer=rag_result.answer,
             confidence=rag_result.confidence,
-            sources=[s.model_dump() for s in sources],
+            sources=json.dumps([s.model_dump() for s in sources], ensure_ascii=False),  # Serialize to JSON string
             processing_time_ms=int(rag_result.processing_time_ms),
-            stage_timings_ms=stage_timings,
+            stage_timings_ms=json.dumps(stage_timings, ensure_ascii=False),  # Serialize to JSON string
             llm_model=rag_result.llm_model,
             embedding_model=rag_result.embedding_model,
         )

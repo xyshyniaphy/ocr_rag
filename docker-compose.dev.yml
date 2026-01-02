@@ -56,6 +56,12 @@ services:
       - OLLAMA_HOST=ollama:11434
       - OLLAMA_MODEL=qwen3:4b
 
+      # GLM
+      - LLM_PROVIDER=glm
+      - GLM_API_KEY=59e293a0619b4844b1bd3e6d03291894.Hwq4vGCGaqcSVqVO
+      - GLM_BASE_URL=https://api.z.ai/api/paas/v4/
+      - GLM_MODEL=GLM-4.5-Air
+
       # OCR
       - OCR_ENGINE=yomitoku
       - OCR_CONFIDENCE_THRESHOLD=0.85
