@@ -82,7 +82,6 @@ async def upload_document(
     # Create document record
     document = DocumentModel(
         id=uuid.uuid4(),
-        document_id=uuid.uuid4(),
         owner_id=uuid.uuid4(),  # TODO: Get from authenticated user
         filename=file.filename,
         file_size_bytes=len(content),
@@ -90,7 +89,7 @@ async def upload_document(
         content_type=file.content_type,
         title=metadata_dict.get("title", file.filename),
         author=metadata_dict.get("author"),
-        keywords=metadata_dict.get("keywords", []),
+        keywords=json.dumps(metadata_dict.get("keywords", [])) if metadata_dict.get("keywords") else None,
         language=metadata_dict.get("language", "ja"),
         category=metadata_dict.get("category"),
         metadata=metadata_dict,
