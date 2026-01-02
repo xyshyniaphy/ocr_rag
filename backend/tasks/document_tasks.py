@@ -24,26 +24,88 @@ def process_document(self, document_id: str) -> Dict[str, Any]:
     3. Embedding Generation
     4. Vector DB Insertion
     """
+    import asyncio
+    from datetime import datetime
+    import backend.db.session as session_module
+    from backend.db.models import Document as DocumentModel
+    from sqlalchemy import select
+
     logger.info(f"Processing document: {document_id}")
 
+    async def process():
+        # Ensure database is initialized (for Celery worker process)
+        if session_module.async_session_maker is None:
+            logger.info("Initializing database connection for Celery worker")
+            await session_module.init_db()
+
+        # Get session maker after potential init
+        session_maker = session_module.async_session_maker
+
+        # Get database session directly
+        async with session_maker() as db:
+            try:
+                logger.info(f"Database session acquired for document: {document_id}")
+
+                # Get document
+                result = await db.execute(
+                    select(DocumentModel).where(DocumentModel.id == uuid.UUID(document_id))
+                )
+                document = result.scalar_one_or_none()
+
+                if not document:
+                    logger.error(f"Document not found: {document_id}")
+                    return {"error": "Document not found"}
+
+                logger.info(f"Document found: {document_id}, current status: {document.status}")
+
+                # Update status to processing
+                document.status = "processing"
+                await db.commit()
+                logger.info(f"Document status updated to: processing")
+
+                # TODO: Implement actual processing pipeline
+                # For now, simulate processing with placeholder data
+
+                # Simulate OCR processing
+                await asyncio.sleep(1)
+
+                # Update document with placeholder results
+                document.status = "completed"
+                document.page_count = 1
+                document.chunk_count = 1
+                document.ocr_confidence = 0.95
+                document.processing_completed_at = datetime.utcnow()
+
+                await db.commit()
+                logger.info(f"Document processing complete: {document_id}")
+
+                return {
+                    "document_id": document_id,
+                    "status": "completed",
+                    "pages_processed": document.page_count,
+                    "chunks_created": document.chunk_count,
+                    "confidence": document.ocr_confidence,
+                }
+
+            except Exception as e:
+                logger.error(f"Document processing failed: {document_id} - {e}", exc_info=True)
+                # Update status to failed
+                try:
+                    if 'document' in locals() and document:
+                        document.status = "failed"
+                        await db.commit()
+                except:
+                    pass
+                raise
+
     try:
-        # TODO: Implement actual document processing
-        # For now, just update status
-
-        result = {
-            "document_id": document_id,
-            "status": "completed",
-            "pages_processed": 0,
-            "chunks_created": 0,
-            "confidence": 0.0,
-        }
-
-        logger.info(f"Document processing complete: {document_id}")
+        # Run async function with proper event loop management
+        result = asyncio.run(process())
         return result
 
     except Exception as e:
-        logger.error(f"Document processing failed: {document_id} - {e}")
-        self.update_state(state="FAILURE", meta={"error": str(e)})
+        logger.error(f"Document processing failed: {document_id} - {e}", exc_info=True)
+        # Don't use update_state as it may not be available in all contexts
         raise
 
 

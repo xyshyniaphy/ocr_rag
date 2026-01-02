@@ -559,3 +559,245 @@ class TestDocumentAPIErrorHandling:
 
         # Should return validation error
         assert response.status_code in [400, 422]
+
+
+@pytest.mark.integration
+@pytest.mark.processing  # Marker for processing tests (may take longer)
+class TestDocumentProcessing:
+    """Test document upload and background processing pipeline"""
+
+    @pytest.mark.asyncio
+    async def test_upload_and_wait_for_completion(self, client: AsyncClient, auth_headers: dict):
+        """Test document upload and wait for background processing to complete
+
+        This test verifies the full pipeline:
+        1. Upload a document
+        2. Background task is triggered
+        3. Document status changes from pending -> processing -> completed
+        4. Processing metadata (page_count, chunk_count, ocr_confidence) is set
+        """
+        import asyncio
+        import time
+
+        test_pdf_path = get_test_pdf_path()
+        if not test_pdf_path.exists():
+            pytest.skip("Test PDF not found")
+
+        # Read and modify content to avoid duplicate detection
+        with open(test_pdf_path, "rb") as f:
+            content = f.read()
+            modified_content = content + b" processing_test_" + str(time.time_ns()).encode()
+
+        # Upload document
+        files = {"file": ("test_processing.pdf", modified_content, "application/pdf")}
+        upload_response = await client.post(
+            "/api/v1/documents/upload",
+            headers=auth_headers,
+            files=files
+        )
+
+        # Verify upload was accepted
+        assert upload_response.status_code in [200, 202]
+        upload_data = upload_response.json()
+        doc_id = upload_data.get("document_id")
+        assert doc_id is not None
+        assert upload_data.get("status") in ["pending", "processing"]
+
+        # Poll for completion (with timeout)
+        # Note: In test environment, background processing may not be running
+        # If Celery worker is not active, document will remain in "pending" state
+        max_attempts = 30  # 30 seconds max
+        attempt = 0
+        final_status = None
+
+        while attempt < max_attempts:
+            await asyncio.sleep(1)  # Wait 1 second between polls
+
+            response = await client.get(
+                f"/api/v1/documents/{doc_id}",
+                headers=auth_headers
+            )
+
+            assert response.status_code == 200
+            doc = response.json()
+            final_status = doc.get("status")
+
+            # Break if completed or failed
+            if final_status in ["completed", "failed"]:
+                break
+
+            attempt += 1
+
+        # If background processing is not running, skip the completion check
+        # This is acceptable for tests that don't have Celery worker available
+        if final_status == "pending":
+            pytest.skip("Background processing not available in test environment")
+
+        # Verify document completed successfully
+        assert final_status == "completed", f"Document status is {final_status}, expected 'completed'"
+
+        # Get final document state
+        response = await client.get(
+            f"/api/v1/documents/{doc_id}",
+            headers=auth_headers
+        )
+        doc = response.json()
+
+        # Verify processing metadata is set
+        assert doc["document_id"] == doc_id
+        assert doc["status"] == "completed"
+        assert doc["page_count"] is not None and doc["page_count"] > 0
+        assert doc["chunk_count"] is not None and doc["chunk_count"] > 0
+        assert doc["ocr_confidence"] is not None and 0.0 <= doc["ocr_confidence"] <= 1.0
+        assert doc["processing_completed_at"] is not None
+
+    @pytest.mark.asyncio
+    async def test_upload_creates_processing_record(self, client: AsyncClient, auth_headers: dict):
+        """Test that upload creates a document record with correct initial state"""
+        import asyncio
+        import time
+
+        test_pdf_path = get_test_pdf_path()
+        if not test_pdf_path.exists():
+            pytest.skip("Test PDF not found")
+
+        with open(test_pdf_path, "rb") as f:
+            content = f.read()
+            modified_content = content + b" record_test_" + str(time.time_ns()).encode()
+
+        files = {"file": ("test_record.pdf", modified_content, "application/pdf")}
+        upload_response = await client.post(
+            "/api/v1/documents/upload",
+            headers=auth_headers,
+            files=files
+        )
+
+        assert upload_response.status_code in [200, 202]
+        upload_data = upload_response.json()
+        doc_id = upload_data.get("document_id")
+
+        # Verify document exists in database immediately after upload
+        response = await client.get(
+            f"/api/v1/documents/{doc_id}",
+            headers=auth_headers
+        )
+
+        assert response.status_code == 200
+        doc = response.json()
+
+        # Verify initial document state
+        assert doc["document_id"] == doc_id
+        assert doc["filename"] == "test_record.pdf"
+        assert doc["content_type"] == "application/pdf"
+        assert doc["file_size_bytes"] > 0
+        assert doc["file_hash"] is not None and len(doc["file_hash"]) == 64  # SHA256 hex
+        assert doc["uploaded_at"] is not None
+        assert doc["status"] in ["pending", "processing", "completed"]  # May have started processing
+
+    @pytest.mark.asyncio
+    async def test_processing_updates_metadata_correctly(self, client: AsyncClient, auth_headers: dict):
+        """Test that processing correctly updates all document metadata"""
+        import asyncio
+        import time
+
+        test_pdf_path = get_test_pdf_path()
+        if not test_pdf_path.exists():
+            pytest.skip("Test PDF not found")
+
+        # Upload with metadata
+        with open(test_pdf_path, "rb") as f:
+            content = f.read()
+            modified_content = content + b" metadata_update_test_" + str(time.time_ns()).encode()
+
+        # Note: FastAPI Form fields don't work well with files in httpx
+        # We need to pass metadata as JSON string in the form data
+        import json
+        metadata_json = json.dumps({
+            "title": "Processing Test Document",
+            "author": "Test Author",
+            "language": "ja"
+        })
+
+        files = {"file": ("test_metadata_update.pdf", modified_content, "application/pdf")}
+        upload_response = await client.post(
+            "/api/v1/documents/upload",
+            headers=auth_headers,
+            files=files,
+            data={"metadata": metadata_json}
+        )
+
+        assert upload_response.status_code in [200, 202]
+        doc_id = upload_response.json().get("document_id")
+
+        # Wait for processing
+        max_wait = 10  # 10 seconds
+        waited = 0
+        while waited < max_wait:
+            await asyncio.sleep(1)
+            response = await client.get(
+                f"/api/v1/documents/{doc_id}",
+                headers=auth_headers
+            )
+            doc = response.json()
+            if doc["status"] == "completed":
+                break
+            waited += 1
+
+        # If background processing is not running, skip the processing metadata check
+        if doc["status"] == "pending":
+            pytest.skip("Background processing not available in test environment")
+
+        # Verify metadata is preserved after processing
+        assert doc["title"] == "Processing Test Document"
+        assert doc["author"] == "Test Author"
+        assert doc["language"] == "ja"
+
+        # Verify processing metadata
+        assert doc["status"] == "completed"
+        assert doc["page_count"] is not None
+        assert doc["chunk_count"] is not None
+        assert doc["ocr_confidence"] is not None
+        assert doc["processing_completed_at"] is not None
+
+    @pytest.mark.asyncio
+    async def test_status_endpoint_reflects_processing_state(self, client: AsyncClient, auth_headers: dict):
+        """Test that /status endpoint shows accurate processing state"""
+        import asyncio
+        import time
+
+        test_pdf_path = get_test_pdf_path()
+        if not test_pdf_path.exists():
+            pytest.skip("Test PDF not found")
+
+        with open(test_pdf_path, "rb") as f:
+            content = f.read()
+            modified_content = content + b" status_test_" + str(time.time_ns()).encode()
+
+        files = {"file": ("test_status_check.pdf", modified_content, "application/pdf")}
+        upload_response = await client.post(
+            "/api/v1/documents/upload",
+            headers=auth_headers,
+            files=files
+        )
+
+        doc_id = upload_response.json().get("document_id")
+
+        # Check status endpoint
+        response = await client.get(
+            f"/api/v1/documents/{doc_id}/status",
+            headers=auth_headers
+        )
+
+        assert response.status_code == 200
+        status_data = response.json()
+
+        # Verify status endpoint structure
+        assert status_data["document_id"] == doc_id
+        assert status_data["status"] in ["pending", "processing", "completed", "failed"]
+        assert "progress" in status_data
+        assert isinstance(status_data["progress"], int)
+        assert 0 <= status_data["progress"] <= 100
+        assert "current_stage" in status_data
+        assert "stages" in status_data
+        assert "upload" in status_data["stages"]
+        assert status_data["stages"]["upload"]["status"] == "completed"

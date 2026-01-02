@@ -23,6 +23,16 @@ class TestCacheManager:
         await manager.clear()
         return manager
 
+    @pytest.fixture
+    def sync_cache_manager(self, event_loop_policy):
+        """Synchronous fixture for creating cache manager"""
+        import asyncio
+        async def _create_manager():
+            manager = CacheManager()
+            await manager.clear()
+            return manager
+        return asyncio.run(_create_manager())
+
     @pytest.mark.asyncio
     async def test_cache_manager_initialization(self, cache_manager):
         """Test cache manager initializes correctly"""

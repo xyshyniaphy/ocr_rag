@@ -7,8 +7,7 @@ Tests for embedding service integration with models
 import pytest
 import numpy as np
 
-from backend.services.embedding import get_embedding_service, SarashinaEmbeddingModel
-from backend.services.embedding.schema import EmbeddingOptions
+from backend.services.embedding import get_embedding_service, SarashinaEmbeddingModel, EmbeddingOptions
 
 
 @pytest.mark.integration

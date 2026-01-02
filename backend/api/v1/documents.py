@@ -110,7 +110,9 @@ async def upload_document(
 
     logger.info(f"Document uploaded: {document.id} - {file.filename}")
 
-    # TODO: Trigger background processing
+    # Trigger background processing
+    from backend.tasks.document_tasks import process_document
+    process_document.delay(str(document.id))
 
     return {
         "document_id": str(document.id),
