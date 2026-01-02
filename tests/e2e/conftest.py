@@ -18,6 +18,14 @@ from backend.db.session import init_db
 async def initialize_database():
     """Initialize database and storage for E2E tests"""
     await init_db()
+    # Initialize Milvus collection
+    from backend.db.vector.client import init_milvus
+    try:
+        await init_milvus()
+    except Exception as e:
+        import warnings
+        warnings.warn(f"Milvus initialization failed: {e}")
+
     # Initialize MinIO storage client
     from backend.storage.client import init_minio
     try:
@@ -26,6 +34,123 @@ async def initialize_database():
         # MinIO might not be available in all test environments
         import warnings
         warnings.warn(f"MinIO initialization failed: {e}")
+
+
+@pytest.fixture(scope="session", autouse=True)
+def cleanup_test_data():
+    """
+    Session-level cleanup fixture that runs after all E2E tests complete.
+
+    This ensures no orphaned data remains in PostgreSQL, Milvus, or MinIO
+    after test runs, preventing data pollution between test sessions.
+
+    The fixture runs automatically for all E2E tests due to autouse=True.
+    """
+    yield  # Runs after all tests in the session complete
+
+    import asyncio
+    import sys
+    import os
+
+    # Add project root to path for imports
+    sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
+
+    print("\n" + "="*70)
+    print("E2E TEST SESSION: Cleaning up test data...")
+    print("="*70)
+
+    async def cleanup():
+        """Cleanup all test data from PostgreSQL, Milvus, and MinIO"""
+
+        # 1. Clean up PostgreSQL (documents with CASCADE delete chunk records)
+        try:
+            from backend.db.session import async_session_maker
+            from backend.db.models import Document as DocumentModel
+            from sqlalchemy import select
+
+            async with async_session_maker() as session:
+                # Get all documents
+                result = await session.execute(select(DocumentModel))
+                documents = result.scalars().all()
+                doc_count = len(documents)
+
+                if doc_count > 0:
+                    # Hard delete all documents (CASCADE deletes chunk records)
+                    for document in documents:
+                        await session.delete(document)
+                    await session.commit()
+                    print(f"✅ PostgreSQL: Deleted {doc_count} document(s) with CASCADE")
+                else:
+                    print("✅ PostgreSQL: No documents to clean up")
+
+        except Exception as e:
+            print(f"⚠️  PostgreSQL cleanup warning: {e}")
+
+        # 2. Clean up Milvus (delete all chunks)
+        try:
+            from pymilvus import connections, utility
+            from backend.db.vector.client import init_milvus
+
+            # Connect to Milvus
+            connections.connect("default", host="milvus", port="19530")
+
+            # Check if collection exists
+            if utility.has_collection("document_chunks"):
+                # Get entity count before deletion
+                from pymilvus import Collection
+                collection = Collection("document_chunks")
+                collection.load()
+                chunk_count = collection.num_entities
+
+                # Most reliable approach: drop and recreate collection
+                # This handles all edge cases including stale counts and ghost entities
+                utility.drop_collection("document_chunks")
+
+                # Reinitialize the collection
+                await init_milvus()
+
+                print(f"✅ Milvus: Dropped and recreated collection (had {chunk_count} chunks)")
+            else:
+                # Initialize collection if it doesn't exist
+                await init_milvus()
+                print("✅ Milvus: Collection did not exist, created new collection")
+
+        except Exception as e:
+            print(f"⚠️  Milvus cleanup warning: {e}")
+
+        # 3. Clean up MinIO (optional - usually not needed as it's cleaned up with documents)
+        try:
+            from backend.storage.client import list_files, delete_file
+            from backend.storage.client import BUCKET_RAW_PDFS
+
+            # List all files in the raw PDFs bucket
+            files = list_files(BUCKET_RAW_PDFS)
+            file_count = len(files)
+
+            if file_count > 0:
+                # Delete all files
+                for file_obj in files:
+                    try:
+                        object_name = file_obj.object_name
+                        delete_file(BUCKET_RAW_PDFS, object_name)
+                    except Exception:
+                        pass  # Individual file deletion failures are okay
+                print(f"✅ MinIO: Deleted {file_count} file(s)")
+            else:
+                print("✅ MinIO: No files to clean up")
+
+        except Exception as e:
+            print(f"⚠️  MinIO cleanup warning: {e}")
+
+        print("="*70)
+        print("E2E TEST SESSION: Cleanup complete")
+        print("="*70 + "\n")
+
+    # Run the async cleanup
+    try:
+        asyncio.run(cleanup())
+    except Exception as e:
+        print(f"⚠️  Cleanup failed: {e}")
 
 
 @pytest_asyncio.fixture
