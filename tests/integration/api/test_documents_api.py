@@ -1059,3 +1059,275 @@ class TestDeleteAllDocuments:
 
         # Second delete should have 0 deleted_count
         assert result2["deleted_count"] == 0
+
+
+@pytest.mark.integration
+class TestDocumentPermissions:
+    """Test document-level permission enforcement"""
+
+    @pytest.mark.asyncio
+    async def test_get_document_requires_auth(self, client: AsyncClient, db_session):
+        """Test getting document requires authentication"""
+        from backend.db.models import Document
+        import uuid
+
+        # Create a document
+        doc = Document(
+            id=uuid.uuid4(),
+            owner_id=uuid.uuid4(),
+            filename="test.pdf",
+            file_size_bytes=1000,
+            file_hash="hash123",
+            content_type="application/pdf",
+            status="completed"
+        )
+        db_session.add(doc)
+        await db_session.commit()
+
+        # Try to get without auth
+        response = await client.get(f"/api/v1/documents/{doc.id}")
+        assert response.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_get_document_owner_can_access(self, client: AsyncClient, auth_headers: dict, db_session):
+        """Test document owner can access their own document"""
+        from backend.db.models import Document, User
+        from backend.core.security import get_password_hash
+        import uuid
+
+        # Create user and their document
+        user = User(
+            id=uuid.uuid4(),
+            email=f"owner_{uuid.uuid4().hex[:8]}@example.com",
+            hashed_password=get_password_hash("Password123!"),
+            full_name="Doc Owner",
+            is_active=True
+        )
+        db_session.add(user)
+
+        doc = Document(
+            id=uuid.uuid4(),
+            owner_id=user.id,
+            filename="my_doc.pdf",
+            file_size_bytes=1000,
+            file_hash="hash123",
+            content_type="application/pdf",
+            status="completed"
+        )
+        db_session.add(doc)
+        await db_session.commit()
+
+        # Login as owner
+        login_response = await client.post(
+            "/api/v1/auth/login",
+            json={"email": user.email, "password": "Password123!"}
+        )
+        tokens = login_response.json()
+        owner_headers = {"Authorization": f"Bearer {tokens['access_token']}"}
+
+        # Owner should be able to access
+        response = await client.get(
+            f"/api/v1/documents/{doc.id}",
+            headers=owner_headers
+        )
+        assert response.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_delete_document_requires_permission(self, client: AsyncClient, auth_headers: dict, db_session):
+        """Test deleting document requires delete permission"""
+        from backend.db.models import Document, User
+        from backend.core.security import get_password_hash
+        import uuid
+
+        # Create another user's document
+        other_user = User(
+            id=uuid.uuid4(),
+            email=f"other_{uuid.uuid4().hex[:8]}@example.com",
+            hashed_password=get_password_hash("Password123!"),
+            full_name="Other User",
+            is_active=True
+        )
+        db_session.add(other_user)
+
+        doc = Document(
+            id=uuid.uuid4(),
+            owner_id=other_user.id,
+            filename="other_doc.pdf",
+            file_size_bytes=1000,
+            file_hash="hash123",
+            content_type="application/pdf",
+            status="completed"
+        )
+        db_session.add(doc)
+        await db_session.commit()
+
+        # Regular user (not owner, not admin) tries to delete
+        response = await client.delete(
+            f"/api/v1/documents/{doc.id}",
+            headers=auth_headers
+        )
+        assert response.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_admin_can_delete_any_document(self, client: AsyncClient, db_session):
+        """Test admin can delete any document"""
+        from backend.db.models import Document, User
+        from backend.core.security import get_password_hash
+        import uuid
+
+        # Create admin
+        admin = User(
+            id=uuid.uuid4(),
+            email=f"admin_{uuid.uuid4().hex[:8]}@example.com",
+            hashed_password=get_password_hash("AdminPass123!"),
+            full_name="Admin User",
+            role="admin",
+            is_active=True
+        )
+        db_session.add(admin)
+
+        # Create another user's document
+        other_user = User(
+            id=uuid.uuid4(),
+            email=f"other_{uuid.uuid4().hex[:8]}@example.com",
+            hashed_password=get_password_hash("Password123!"),
+            full_name="Other User",
+            is_active=True
+        )
+        db_session.add(other_user)
+
+        doc = Document(
+            id=uuid.uuid4(),
+            owner_id=other_user.id,
+            filename="other_doc.pdf",
+            file_size_bytes=1000,
+            file_hash="hash123",
+            content_type="application/pdf",
+            status="completed"
+        )
+        db_session.add(doc)
+        await db_session.commit()
+
+        # Login as admin
+        login_response = await client.post(
+            "/api/v1/auth/login",
+            json={"email": admin.email, "password": "AdminPass123!"}
+        )
+        tokens = login_response.json()
+        admin_headers = {"Authorization": f"Bearer {tokens['access_token']}"}
+
+        # Admin should be able to delete
+        response = await client.delete(
+            f"/api/v1/documents/{doc.id}",
+            headers=admin_headers
+        )
+        assert response.status_code == 204
+
+    @pytest.mark.asyncio
+    async def test_list_documents_filters_by_permissions(self, client: AsyncClient, db_session):
+        """Test document list only returns accessible documents"""
+        from backend.db.models import Document, User
+        from backend.core.security import get_password_hash
+        import uuid
+
+        # Create user
+        user = User(
+            id=uuid.uuid4(),
+            email=f"user_{uuid.uuid4().hex[:8]}@example.com",
+            hashed_password=get_password_hash("Password123!"),
+            full_name="Regular User",
+            is_active=True
+        )
+        db_session.add(user)
+
+        # Create user's document
+        user_doc = Document(
+            id=uuid.uuid4(),
+            owner_id=user.id,
+            filename="user_doc.pdf",
+            file_size_bytes=1000,
+            file_hash="hash1",
+            content_type="application/pdf",
+            status="completed"
+        )
+        db_session.add(user_doc)
+
+        # Create other user's document
+        other_user = User(
+            id=uuid.uuid4(),
+            email=f"other_{uuid.uuid4().hex[:8]}@example.com",
+            hashed_password=get_password_hash("Password123!"),
+            full_name="Other User",
+            is_active=True
+        )
+        db_session.add(other_user)
+
+        other_doc = Document(
+            id=uuid.uuid4(),
+            owner_id=other_user.id,
+            filename="other_doc.pdf",
+            file_size_bytes=1000,
+            file_hash="hash2",
+            content_type="application/pdf",
+            status="completed"
+        )
+        db_session.add(other_doc)
+        await db_session.commit()
+
+        # Login as regular user
+        login_response = await client.post(
+            "/api/v1/auth/login",
+            json={"email": user.email, "password": "Password123!"}
+        )
+        tokens = login_response.json()
+        user_headers = {"Authorization": f"Bearer {tokens['access_token']}"}
+
+        # List documents
+        response = await client.get(
+            "/api/v1/documents",
+            headers=user_headers
+        )
+        assert response.status_code == 200
+        result = response.json()
+
+        # Should only see own documents
+        doc_ids = [doc["document_id"] for doc in result["results"]]
+        assert str(user_doc.id) in doc_ids
+        assert str(other_doc.id) not in doc_ids
+
+    @pytest.mark.asyncio
+    async def test_download_document_requires_permission(self, client: AsyncClient, auth_headers: dict, db_session):
+        """Test downloading document requires download permission"""
+        from backend.db.models import Document, User
+        from backend.core.security import get_password_hash
+        import uuid
+
+        # Create another user's document
+        other_user = User(
+            id=uuid.uuid4(),
+            email=f"other_{uuid.uuid4().hex[:8]}@example.com",
+            hashed_password=get_password_hash("Password123!"),
+            full_name="Other User",
+            is_active=True
+        )
+        db_session.add(other_user)
+
+        doc = Document(
+            id=uuid.uuid4(),
+            owner_id=other_user.id,
+            filename="other_doc.pdf",
+            file_size_bytes=1000,
+            file_hash="hash123",
+            content_type="application/pdf",
+            status="completed",
+            storage_path="raw-pdfs/some/path.pdf"
+        )
+        db_session.add(doc)
+        await db_session.commit()
+
+        # Regular user (not owner) tries to download
+        response = await client.get(
+            f"/api/v1/documents/{doc.id}/download",
+            headers=auth_headers
+        )
+        assert response.status_code == 403

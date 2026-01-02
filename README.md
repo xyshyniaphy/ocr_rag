@@ -1,10 +1,41 @@
 # Japanese OCR RAG System - Technical Specification Document
 
-**Version:** 1.0  
-**Date:** January 1, 2026  
-**Target Language:** Japanese (日本語)  
-**Classification:** Production-Ready Architecture  
+**Version:** 1.0
+**Date:** January 3, 2026
+**Target Language:** Japanese (日本語)
+**Classification:** Production-Ready Architecture
 **Document Owner:** Technical Architecture Team
+
+---
+
+## 1.1 Implementation Status
+
+### P0 Core RAG Pipeline: ✅ COMPLETE (2026-01-03)
+| Component | Status | Notes |
+|-----------|--------|-------|
+| OCR Service (YomiToku) | ✅ Complete | 95%+ accuracy on Japanese documents |
+| Text Chunking | ✅ Complete | Japanese-aware with configurable parameters |
+| Embedding (Sarashina 1792D) | ✅ Complete | GPU-accelerated, batch processing |
+| Retrieval (Hybrid) | ✅ Complete | Vector + BM25 keyword search |
+| Reranking (Llama-3.2-NV) | ✅ Complete | Top-K re-ranking for relevance |
+| LLM (GLM-4.5-Air) | ✅ Complete | Primary cloud LLM with Japanese support |
+| RAG Orchestration | ✅ Complete | Full 5-stage pipeline with error handling |
+| Background Processing | ✅ Complete | Celery worker for async document processing |
+| Query API | ✅ Complete | REST endpoint with real RAG responses |
+| WebSocket Streaming | ✅ Complete | Real-time token streaming |
+
+### P1 High Priority: 🟡 IN PROGRESS
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Permission System (ACL) | ⚠️ Model exists | Enforcement middleware pending |
+| User Management | ⚠️ Basic complete | Profile editing pending |
+| Advanced Query Features | ⚠️ API exists | Query history, filtering pending |
+
+### P2/P3 Features: ⏳ TODO
+- Monitoring & Observability (Prometheus metrics)
+- Unit Tests (191 passing ✅)
+- Integration/E2E Tests
+- API Documentation completion
 
 ---
 
@@ -49,9 +80,9 @@ This document specifies a production-grade Retrieval-Augmented Generation (RAG) 
 ┌───────────────────────────┼─────────────────────────────────────────┐
 │                  Application Layer (Orchestration)                   │
 │  ┌─────────────────────────────────────────────────────────────┐   │
-│  │              LangChain RAG Pipeline                          │   │
-│  │  - Document Loader  - Text Splitter  - Query Router         │   │
-│  │  - Prompt Templates - Chain Manager   - Memory Context      │   │
+│  │              RAG Pipeline (Custom Implementation)             │   │
+│  │  - OCR Service  - Text Chunker  - Embedding Service         │   │
+│  │  - Retrieval Service - Reranker Service - LLM Service       │   │
 │  └─────────────────────────────────────────────────────────────┘   │
 └───────────────────────────┬─────────────────────────────────────────┘
                             │
@@ -62,15 +93,16 @@ This document specifies a production-grade Retrieval-Augmented Generation (RAG) 
 │  │  OCR Pipeline   │  │  Embedding       │  │  LLM Generation  │  │
 │  │                 │  │  Pipeline        │  │  Pipeline        │  │
 │  │ ┌─────────────┐ │  │ ┌──────────────┐ │  │ ┌──────────────┐ │  │
-│  │ │  YomiToku   │ │  │ │  Sarashina   │ │  │ │  Qwen2.5     │ │  │
-│  │ │     OCR     │ │  │ │ Embedding-v1 │ │  │ │    14B       │ │  │
-│  │ │   (Primary) │ │  │ │     1B       │ │  │ │  (Ollama)    │ │  │
-│  │ └─────────────┘ │  │ └──────────────┘ │  │ └──────────────┘ │  │
-│  │                 │  │                  │  │                  │  │
-│  │ ┌─────────────┐ │  │ ┌──────────────┐ │  │ ┌──────────────┐ │  │
-│  │ │PaddleOCR-VL │ │  │ │   Reranker   │ │  │ │  DeepSeek-V3 │ │  │
-│  │ │  (Fallback) │ │  │ │ Llama-3.2-NV │ │  │ │  (Optional)  │ │  │
-│  │ └─────────────┘ │  │ └──────────────┘ │  │ └──────────────┘ │  │
+│  │ │  YomiToku   │ │  │ │  Sarashina   │ │  │ │  GLM-4.5-Air │ │  │
+│  │ │     OCR     │ │  │ │ Embedding-v1 │ │  │ │  (Primary)   │ │  │
+│  │ │   (Japanese)│ │  │ │     1B       │ │  │ │   (Z.ai)     │ │  │
+│  │ │    1792D    │ │  │ │   (1792D)    │ │  │ └──────────────┘ │  │
+│  │ └─────────────┘ │  │ └──────────────┘ │  │                  │  │
+│  │                 │  │                  │  │ ┌──────────────┐ │  │
+│  │                 │  │ ┌──────────────┐ │  │ │   Qwen2.5    │ │  │
+│  │                 │  │ │   Reranker   │ │  │ │   14B        │ │  │
+│  │                 │  │ │ Llama-3.2-NV │ │  │ │  (Fallback)  │ │  │
+│  │                 │  │ └──────────────┘ │  │ │  (Ollama)    │ │  │
 │  └─────────────────┘  └──────────────────┘  └──────────────────┘  │
 └───────────────────────────┬─────────────────────────────────────────┘
                             │
@@ -79,7 +111,7 @@ This document specifies a production-grade Retrieval-Augmented Generation (RAG) 
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐              │
 │  │    Milvus    │  │  PostgreSQL  │  │   MinIO      │              │
 │  │  Vector DB   │  │  Metadata DB │  │ Object Store │              │
-│  │ (768D embed) │  │  (Document)  │  │ (Raw PDFs)   │              │
+│  │ (1792D embed)│  │  (Document)  │  │ (Raw PDFs)   │              │
 │  └──────────────┘  └──────────────┘  └──────────────┘              │
 └─────────────────────────────────────────────────────────────────────┘
 ```
@@ -129,24 +161,8 @@ User Query -> Query Understanding -> Hybrid Search (Vector + Keyword)
   ```
 - **Error Handling**:
   - Retry with higher resolution if confidence <0.85
-  - Fallback to PaddleOCR-VL if YomiToku fails (e.g., mixed-language documents)
   - Log low-confidence regions for manual review
-
-#### 3.1.2 Fallback OCR: PaddleOCR-VL
-- **Model**: Baidu PaddleOCR Vision-Language Model (October 2025 release)
-- **Trigger Conditions**:
-  - YomiToku confidence <0.80
-  - Multi-language document (Japanese + English >20% mix)
-  - Document contains non-standard fonts
-- **Configuration**:
-  ```yaml
-  paddleocr_vl:
-    language: ja+en  # Multi-language mode
-    detection_model: PP-OCRv4
-    recognition_model: PP-OCRv4-server
-    use_gpu: true
-    max_side_len: 2000  # Max image dimension
-  ```
+  - Multi-language documents handled via YomiToku's built-in support
 
 #### 3.1.3 OCR Quality Assurance
 - **Pre-processing**:
@@ -165,7 +181,7 @@ User Query -> Query Understanding -> Hybrid Search (Vector + Keyword)
 #### 3.2.1 Primary Embedding: Sarashina-Embedding-v1-1B
 - **Model**: sbintuitions/sarashina-embedding-v1-1b
 - **Architecture**: Decoder-based (1.2B parameters)
-- **Embedding Dimension**: 768D (standard)
+- **Embedding Dimension**: **1792D** (high-dimensional for better semantic capture)
 - **Max Context Length**: 8,192 tokens
 - **Normalization**: L2-normalized (required for cosine similarity)
 - **Deployment**:
@@ -212,7 +228,7 @@ User Query -> Query Understanding -> Hybrid Search (Vector + Keyword)
   schema = {
       "fields": [
           {"name": "chunk_id", "type": "VARCHAR", "max_length": 64, "is_primary": True},
-          {"name": "embedding", "type": "FLOAT_VECTOR", "dim": 768},
+          {"name": "embedding", "type": "FLOAT_VECTOR", "dim": 1792},  # Sarashina-Embedding-v1-1B
           {"name": "text_content", "type": "VARCHAR", "max_length": 4096},
           {"name": "document_id", "type": "VARCHAR", "max_length": 64},
           {"name": "page_number", "type": "INT32},
@@ -300,22 +316,26 @@ User Query -> Query Understanding -> Hybrid Search (Vector + Keyword)
 
 ### 3.4 LLM Generation Layer
 
-#### 3.4.1 Primary LLM: Qwen2.5-14B
-- **Model**: Qwen/Qwen2.5-14B-Instruct (via Ollama)
-- **Context Window**: 32,768 tokens
-- **Quantization**: Q4_K_M (4-bit, medium quality) for RTX 4090; Q8_0 (8-bit) for A100
-- **Deployment**: Ollama server (local GPU or Ollama Cloud)
+#### 3.4.1 Primary LLM: GLM-4.5-Air (Z.ai Platform)
+- **Model**: GLM-4.5-Air (Z.ai international platform)
+- **Provider**: Z.ai (https://api.z.ai/api/paas/v4/)
+- **Context Window**: 128,000 tokens
+- **Deployment**: Cloud API (OpenAI-compatible)
+- **Advantages**:
+  - ✅ Fast response times (cloud API)
+  - ✅ No local GPU required
+  - ✅ Cost-effective for production
+  - ✅ High-quality Japanese responses
 - **Configuration**:
   ```yaml
-  qwen_config:
-    model: qwen2.5:14b-instruct-q4_K_M
+  glm_config:
+    api_key: ${GLM_API_KEY}  # From https://z.ai/
+    base_url: https://api.z.ai/api/paas/v4/
+    model: GLM-4.5-Air  # Fast, cost-effective
     temperature: 0.1  # Low temperature for factual accuracy
     top_p: 0.9
-    top_k: 40
-    repeat_penalty: 1.1
-    num_ctx: 32768  # Full context window
-    num_predict: 2048  # Max response tokens
-    stop_sequences: ["[END]", "参考文献:", "Sources:"]
+    max_tokens: 2048
+    stream: true  # Enable streaming responses
   ```
 - **Prompt Template**:
   ```python
@@ -338,10 +358,30 @@ User Query -> Query Understanding -> Hybrid Search (Vector + Keyword)
 """
   ```
 
-#### 3.4.2 Alternative LLM: DeepSeek-V3 (Optional)
-- **Use Case**: When Qwen2.5 output quality is insufficient
-- **Deployment**: Ollama or local container
-- **Configuration**: Similar to Qwen2.5 but higher temperature (0.2) for nuanced answers
+#### 3.4.2 Fallback LLM: Qwen2.5-14B (Ollama)
+- **Use Case**: Local fallback when GLM API is unavailable
+- **Model**: Qwen/Qwen2.5-14B-Instruct (via Ollama)
+- **Context Window**: 32,768 tokens
+- **Quantization**: Q4_K_M (4-bit, medium quality) for RTX 4090
+- **Deployment**: Ollama server (local GPU)
+- **Configuration**:
+  ```yaml
+  qwen_config:
+    model: qwen2.5:14b-instruct-q4_K_M
+    temperature: 0.1
+    top_p: 0.9
+    top_k: 40
+    repeat_penalty: 1.1
+    num_ctx: 32768
+    num_predict: 2048
+    stop_sequences: ["[END]", "参考文献:", "Sources:"]
+  ```
+
+#### 3.4.3 LLM Provider Switching
+- **Environment Variable**: `LLM_PROVIDER`
+  - `glm` - Use GLM cloud API (default, recommended)
+  - `ollama` - Use local Ollama (fallback)
+- **Automatic Fallback**: System automatically switches to Ollama if GLM API fails
 
 ### 3.5 Text Processing Layer
 

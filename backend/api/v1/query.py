@@ -10,16 +10,18 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.logging import get_logger
-from backend.core.exceptions import ValidationException, RAGException, AuthenticationException
+from backend.core.exceptions import ValidationException, RAGException, AuthenticationException, NotFoundException
 from backend.core.security import verify_access_token
 from backend.db.session import get_db_session
 from backend.db.models import Document as DocumentModel, User as UserModel
 from backend.models.query import (
     QueryRequest,
     QueryResponse,
+    QueryListResponse,
     SourceReference,
     SearchRequest,
     SearchResponse,
+    QueryFeedbackRequest,
 )
 from backend.services.rag import (
     get_rag_service,
@@ -250,3 +252,185 @@ async def search_documents(
         offset=offset,
         results=results,
     )
+
+
+@router.get("/queries", response_model=QueryListResponse)
+async def list_queries(
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db_session),
+    current_user: UserModel = Depends(get_current_user_required),
+):
+    """
+    Get current user's query history
+    
+    - **limit**: Results per page (1-100)
+    - **offset**: Results to skip
+    """
+    from backend.db.models import Query as QueryModel
+    from sqlalchemy import select, func, desc
+    
+    # Count total queries for user
+    count_result = await db.execute(
+        select(func.count())
+        .select_from(select(QueryModel).where(QueryModel.user_id == current_user.id).subquery())
+    )
+    total = count_result.scalar()
+    
+    # Get user's queries
+    result = await db.execute(
+        select(QueryModel)
+        .where(QueryModel.user_id == current_user.id)
+        .order_by(desc(QueryModel.created_at))
+        .offset(offset)
+        .limit(limit)
+    )
+    queries = result.scalars().all()
+    
+    # Format results
+    results = []
+    for q in queries:
+        import json
+        results.append({
+            "query_id": str(q.id),
+            "query_text": q.query_text,
+            "query_language": q.query_language,
+            "answer": q.answer,
+            "created_at": q.created_at.isoformat(),
+            "processing_time_ms": q.processing_time_ms,
+            "confidence": q.confidence,
+            "retrieved_count": q.retrieved_count,
+            "llm_model": q.llm_model,
+        })
+    
+    return QueryListResponse(
+        total=total,
+        limit=limit,
+        offset=offset,
+        results=results,
+    )
+
+
+@router.post("/queries/{query_id}/feedback")
+async def submit_query_feedback(
+    query_id: str,
+    feedback: QueryFeedbackRequest,
+    db: AsyncSession = Depends(get_db_session),
+    current_user: UserModel = Depends(get_current_user_required),
+):
+    """
+    Submit feedback on a query result
+    
+    - **user_rating**: Rating from 1-5
+    - **is_helpful**: Was the answer helpful?
+    - **user_feedback**: Additional feedback text
+    """
+    from backend.db.models import Query as QueryModel
+    import uuid
+    
+    # Validate query ID
+    try:
+        query_uuid = uuid.UUID(query_id)
+    except ValueError:
+        raise ValidationException(
+            message="Invalid query ID format",
+            details={"query_id": query_id}
+        )
+    
+    # Get query
+    result = await db.execute(
+        select(QueryModel).where(QueryModel.id == query_uuid)
+    )
+    query = result.scalar_one_or_none()
+    
+    if not query:
+        raise NotFoundException("Query")
+    
+    # Verify query belongs to user
+    if query.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied"
+        )
+    
+    # Update feedback
+    query.feedback_rating = feedback.user_rating
+    query.feedback_is_helpful = feedback.is_helpful
+    query.feedback_text = feedback.user_feedback
+    query.feedback_submitted_at = datetime.utcnow()
+    
+    await db.commit()
+    
+    logger.info(f"Feedback submitted for query {query_id} by user {current_user.email}")
+    
+    return {"message": "Feedback submitted successfully"}
+
+
+@router.get("/queries/{query_id}")
+async def get_query(
+    query_id: str,
+    db: AsyncSession = Depends(get_db_session),
+    current_user: UserModel = Depends(get_current_user_required),
+):
+    """
+    Get details of a specific query
+    
+    Returns the full query with sources and timing information
+    """
+    from backend.db.models import Query as QueryModel
+    import uuid
+    import json
+    
+    # Validate query ID
+    try:
+        query_uuid = uuid.UUID(query_id)
+    except ValueError:
+        raise ValidationException(
+            message="Invalid query ID format",
+            details={"query_id": query_id}
+        )
+    
+    # Get query
+    result = await db.execute(
+        select(QueryModel).where(QueryModel.id == query_uuid)
+    )
+    query = result.scalar_one_or_none()
+    
+    if not query:
+        raise NotFoundException("Query")
+    
+    # Verify query belongs to user
+    if query.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied"
+        )
+    
+    # Parse sources and timings
+    try:
+        sources = json.loads(query.sources) if query.sources else []
+        stage_timings = json.loads(query.stage_timings_ms) if query.stage_timings_ms else {}
+    except json.JSONDecodeError:
+        sources = []
+        stage_timings = {}
+    
+    return {
+        "query_id": str(query.id),
+        "query_text": query.query_text,
+        "query_language": query.query_language,
+        "query_type": query.query_type,
+        "answer": query.answer,
+        "sources": sources,
+        "confidence": query.confidence,
+        "processing_time_ms": query.processing_time_ms,
+        "stage_timings_ms": stage_timings,
+        "retrieved_count": query.retrieved_count,
+        "top_k": query.top_k,
+        "llm_model": query.llm_model,
+        "embedding_model": query.embedding_model,
+        "created_at": query.created_at.isoformat(),
+        "feedback_rating": query.feedback_rating,
+        "feedback_is_helpful": query.feedback_is_helpful,
+        "feedback_text": query.feedback_text,
+        "feedback_submitted_at": query.feedback_submitted_at.isoformat() if query.feedback_submitted_at else None,
+    }

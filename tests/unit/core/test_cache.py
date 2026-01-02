@@ -12,26 +12,27 @@ from unittest.mock import AsyncMock, patch, MagicMock
 from backend.core.cache import CacheManager, get_cache_manager
 
 
-class TestCacheManager:
-    """Test CacheManager class"""
-
-    @pytest.fixture
-    async def cache_manager(self):
-        """Create a fresh cache manager for each test"""
-        # Clear any existing cache
+# Module-level fixture for cache manager (synchronous setup for reliability)
+@pytest.fixture
+def cache_manager():
+    """Create a fresh cache manager for each test"""
+    # Run the async setup in a new event loop
+    async def setup_manager():
         manager = CacheManager()
         await manager.clear()
         return manager
 
-    @pytest.fixture
-    def sync_cache_manager(self, event_loop_policy):
-        """Synchronous fixture for creating cache manager"""
-        import asyncio
-        async def _create_manager():
-            manager = CacheManager()
-            await manager.clear()
-            return manager
-        return asyncio.run(_create_manager())
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        manager = loop.run_until_complete(setup_manager())
+        yield manager
+    finally:
+        loop.close()
+
+
+class TestCacheManager:
+    """Test CacheManager class"""
 
     @pytest.mark.asyncio
     async def test_cache_manager_initialization(self, cache_manager):

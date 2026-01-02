@@ -90,7 +90,8 @@ class TestAccessTokens:
         assert len(token) > 0
 
     def test_create_access_token_default_expiration(self):
-        """Test access token has default expiration"""
+        """Test access token has default expiration (from environment)"""
+        from backend.core.config import settings
         data = {"sub": "user123"}
         token = create_access_token(data)
 
@@ -101,9 +102,9 @@ class TestAccessTokens:
         assert payload["type"] == "access"
         assert payload["sub"] == "user123"
 
-        # Check expiration is approximately 15 minutes from now
+        # Check expiration matches environment setting (60 minutes in Docker)
         exp = datetime.fromtimestamp(payload["exp"])
-        expected_exp = datetime.utcnow() + timedelta(minutes=15)
+        expected_exp = datetime.utcnow() + timedelta(minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES)
         time_diff = abs((exp - expected_exp).total_seconds())
         assert time_diff < 5  # Less than 5 seconds difference
 
@@ -180,7 +181,8 @@ class TestRefreshTokens:
         assert len(token) > 0
 
     def test_create_refresh_token_default_expiration(self):
-        """Test refresh token has default expiration (7 days)"""
+        """Test refresh token has default expiration (from environment)"""
+        from backend.core.config import settings
         data = {"sub": "user123"}
         token = create_refresh_token(data)
 
@@ -191,9 +193,9 @@ class TestRefreshTokens:
         assert payload["type"] == "refresh"
         assert payload["sub"] == "user123"
 
-        # Check expiration is approximately 7 days from now
+        # Check expiration matches environment setting (30 days in Docker)
         exp = datetime.fromtimestamp(payload["exp"])
-        expected_exp = datetime.utcnow() + timedelta(days=7)
+        expected_exp = datetime.utcnow() + timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS)
         time_diff = abs((exp - expected_exp).total_seconds())
         assert time_diff < 5
 

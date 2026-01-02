@@ -19,6 +19,28 @@ from backend.db.session import init_db
 
 logger = get_logger(__name__)
 
+# Test data fixtures
+@pytest.fixture
+def test_user():
+    """
+    Test user data for authentication
+    Uses unique email to avoid conflicts
+    """
+    return {
+        "email": f"test_{uuid.uuid4().hex[:8]}@example.com",
+        "password": "test_password_123",
+        "full_name": "Test User"
+    }
+
+
+@pytest.fixture
+def sample_pdf():
+    """
+    Sample PDF bytes for testing
+    Returns minimal PDF for testing
+    """
+    return b"%PDF-1.4\n1 0 obj\n<<\n/Type /Catalog\n/Pages 2 0 R\n>>\nendobj\n"
+
 # Mock RAG service instance - created once and reused
 _mock_rag_service = None
 
@@ -66,15 +88,6 @@ def get_mock_rag_service():
 sys.modules['backend.api.v1.query'].__dict__['get_rag_service'] = lambda: get_mock_rag_service()
 
 
-@pytest_asyncio.fixture(autouse=True)
-async def init_database():
-    """
-    Auto-initialize database for each test.
-    This is safe because init_db() checks if tables already exist.
-    """
-    await init_db()
-
-
 @pytest_asyncio.fixture
 async def db_session():
     """
@@ -95,6 +108,11 @@ async def client() -> AsyncClient:
     Test HTTP client using ASGI transport
     Tests the FastAPI app directly without requiring a running server
     """
+    # Initialize database before creating client
+    # This is needed because ASGI transport doesn't trigger lifespan
+    from backend.db.session import init_db
+    await init_db()
+
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
@@ -127,6 +145,50 @@ async def auth_headers(client: AsyncClient) -> dict:
                 "password": test_user["password"]
             }
         )
+
+    if response.status_code in [200, 201]:
+        token = response.json().get("access_token")
+        if token:
+            return {"Authorization": f"Bearer {token}"}
+
+    # Return empty headers if auth fails
+    return {}
+
+
+@pytest_asyncio.fixture
+async def admin_headers(client: AsyncClient, db_session) -> dict:
+    """
+    Admin authentication headers for API requests
+    Creates an admin user and returns JWT token in headers
+    """
+    from backend.db.models import User
+    from backend.core.security import hash_password
+    import uuid
+
+    # Create unique admin user
+    admin_email = f"admin_{uuid.uuid4().hex[:8]}@example.com"
+    admin_password = "adminpass123"
+
+    # Create admin user directly in database
+    admin_user = User(
+        email=admin_email,
+        password_hash=hash_password(admin_password),
+        full_name="Admin Test User",
+        role="admin",
+        is_active=True
+    )
+    db_session.add(admin_user)
+    await db_session.commit()
+    await db_session.refresh(admin_user)
+
+    # Login as admin
+    response = await client.post(
+        "/api/v1/auth/login",
+        json={
+            "email": admin_email,
+            "password": admin_password
+        }
+    )
 
     if response.status_code in [200, 201]:
         token = response.json().get("access_token")

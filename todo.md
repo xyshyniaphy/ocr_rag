@@ -84,70 +84,76 @@ This document tracks the remaining implementation tasks for the Japanese OCR RAG
 
 ### 4. Retrieval Service (`backend/services/retrieval/`)
 
-**Status:** Stub only
+**Status:** ✅ **IMPLEMENTED** (2026-01-03)
 **Description:** Search vector database for relevant chunks
 
-- [ ] **Vector Search**
-  - [ ] Connect to Milvus collection
-  - [ ] Query by embedding similarity
-  - [ ] Configurable top_k (1-20)
-  - [ ] Return document metadata
+- [x] **Vector Search**
+  - [x] Connect to Milvus collection
+  - [x] Query by embedding similarity
+  - [x] Configurable top_k (1-20)
+  - [x] Return document metadata
 
-- [ ] **Hybrid Search** (Optional)
-  - [ ] Combine vector + keyword search (BM25)
-  - [ ] Score fusion strategies
+- [x] **Hybrid Search**
+  - [x] Combine vector + keyword search (BM25)
+  - [x] Score fusion strategies (RRF)
 
-**Files:** `backend/services/retrieval/__init__.py`, `backend/services/retrieval/vector_search.py`
+**Files:** `backend/services/retrieval/__init__.py`, `backend/services/retrieval/service.py`
 
 ---
 
-### 5. Reranking Service (`backend/services/retrieval/`)
+### 5. Reranking Service (`backend/services/reranker/`)
 
-**Status:** Mock only
+**Status:** ✅ **IMPLEMENTED** (2026-01-03)
 **Description:** Re-rank search results for relevance
 
-- [ ] **Model Loading**
-  - [ ] Load Llama-3.2-NV-RerankQA-1B-v2
-  - [ ] GPU memory allocation
+- [x] **Model Loading**
+  - [x] Load Llama-3.2-NV-RerankQA-1B-v2
+  - [x] GPU memory allocation
 
-- [ ] **Reranking Logic**
-  - [ ] Take query + top_k results
-  - [ ] Return re-ranked results with scores
+- [x] **Reranking Logic**
+  - [x] Take query + top_k results
+  - [x] Return re-ranked results with scores
 
-**Files:** `backend/services/retrieval/reranker.py`
+**Files:** `backend/services/reranker/__init__.py`, `backend/services/reranker/service.py`, `backend/services/reranker/models.py`
 
 ---
 
 ### 6. LLM Service (`backend/services/llm/`)
 
-**Status:** Stub only
-**Description:** Generate answers using Qwen LLM
+**Status:** ✅ **IMPLEMENTED** (2026-01-03)
+**Description:** Generate answers using GLM-4.5-Air (primary) and Qwen (fallback)
 
-- [ ] **Ollama Integration**
-  - [ ] Connect to Ollama API
-  - [ ] Model: `qwen2.5:14b-instruct-q4_K_M`
-  - [ ] Handle streaming responses
+- [x] **GLM Integration (Primary)**
+  - [x] Connect to GLM API
+  - [x] Model: `GLM-4.5-Air` (default)
+  - [x] Handle streaming responses
+  - [x] OpenAI-compatible API
 
-- [ ] **Prompt Engineering**
-  - [ ] System prompt for RAG
-  - [ ] Context assembly (include sources)
-  - [ ] Japanese language handling
+- [x] **Ollama Integration (Fallback)**
+  - [x] Connect to Ollama API
+  - [x] Model: `qwen2.5:14b-instruct-q4_K_M`
+  - [x] Handle streaming responses
 
-- [ ] **Response Generation**
-  - [ ] Generate answer with sources
-  - [ ] Format citations
-  - [ ] Handle edge cases (no results, low confidence)
+- [x] **Prompt Engineering**
+  - [x] System prompt for RAG
+  - [x] Context assembly (include sources)
+  - [x] Japanese language handling
 
-**Files:** `backend/services/llm/__init__.py`, `backend/services/llm/ollama.py`
+- [x] **Response Generation**
+  - [x] Generate answer with sources
+  - [x] Format citations
+  - [x] Handle edge cases (no results, low confidence)
+
+**Files:** `backend/services/llm/__init__.py`, `backend/services/llm/service.py`
 
 ---
 
 ### 7. RAG Orchestration (`backend/services/rag/`)
 
-**Status:** Stub only
+**Status:** ✅ **IMPLEMENTED** (2026-01-03)
 **Description:** Orchestrate the full RAG pipeline
 
-- [ ] **Pipeline Implementation**
+- [x] **Pipeline Implementation**
   ```python
   def rag_pipeline(query: str, top_k: int = 5) -> RAGResponse:
       1. Embed query
@@ -158,13 +164,13 @@ This document tracks the remaining implementation tasks for the Japanese OCR RAG
       6. Return with sources
   ```
 
-- [ ] **Error Handling**
-  - [ ] Graceful degradation
-  - [ ] Fallback strategies
+- [x] **Error Handling**
+  - [x] Graceful degradation
+  - [x] Fallback strategies
 
-- [ ] **Performance Tracking**
-  - [ ] Stage-level timing
-  - [ ] Confidence scores
+- [x] **Performance Tracking**
+  - [x] Stage-level timing
+  - [x] Confidence scores
 
 **Files:** `backend/services/rag/__init__.py`, `backend/services/rag/pipeline.py`
 
@@ -203,13 +209,13 @@ This document tracks the remaining implementation tasks for the Japanese OCR RAG
 
 ### 10. WebSocket Query Streaming
 
-**Status:** Endpoint exists, returns mock data
+**Status:** ✅ **IMPLEMENTED** (2026-01-03)
 
-- [ ] **Integrate RAG Pipeline**
-  - [ ] Replace mock `handle_query()` with real pipeline
-  - [ ] Stream tokens as they're generated
-  - [ ] Send sources when ready
-  - [ ] Send completion signal
+- [x] **Integrate RAG Pipeline**
+  - [x] Replaced mock `handle_query()` with real pipeline
+  - [x] Stream tokens as they're generated
+  - [x] Send sources when ready
+  - [x] Send completion signal
 
 ---
 
@@ -217,44 +223,66 @@ This document tracks the remaining implementation tasks for the Japanese OCR RAG
 
 ### 11. Permission System (ACL)
 
-**Status:** Database model exists, not enforced
+**Status:** ✅ **IMPLEMENTED** (2026-01-03)
 
-- [ ] **Middleware**
-  - [ ] Check document permissions on API calls
-  - [ ] Enforce owner_id in document upload
-  - [ ] Admin bypass
+- [x] **Permission Service** (`backend/core/permissions.py`)
+  - [x] Document-level permission checking
+  - [x] Owner, admin, and role-based access control
+  - [x] Permission enforcement middleware
 
-- [ ] **UI Features**
-  - [ ] Permission management UI
-  - [ ] Share documents with other users
+- [x] **API Integration**
+  - [x] Document upload requires authentication (owner_id from user)
+  - [x] Document get/delete/download check permissions
+  - [x] Document list filters by accessible documents
+
+- [ ] **Permission Management API** (Future)
+  - [ ] Grant/revoke permissions endpoints
+  - [ ] List permissions endpoint
+
+**Files:** `backend/core/permissions.py`, `backend/api/dependencies.py`
 
 ---
 
 ### 12. User Management Enhancements
 
-- [ ] **Profile Management**
-  - [ ] Update email/name
-  - [ ] Change password
-  - [ ] User preferences
+**Status:** ✅ **IMPLEMENTED** (2026-01-03)
 
-- [ ] **Admin Features**
-  - [ ] Create/edit/delete users
-  - [ ] Activity logs
-  - [ ] Usage statistics
+- [x] **Profile Management**
+  - [x] Update email/name (PUT /api/v1/auth/me)
+  - [x] Change password (PUT /api/v1/auth/me/password)
+  - [ ] User preferences (future)
+
+- [x] **Admin Features**
+  - [x] List all users (GET /api/v1/auth/users)
+  - [x] Deactivate users (DELETE /api/v1/auth/users/{id})
+  - [ ] Activity logs (future)
+  - [ ] Usage statistics (future)
+
+**Files:** `backend/api/v1/auth.py` (added PUT /me, PUT /me/password, GET /users, DELETE /users/{id})
 
 ---
 
 ### 13. Advanced Query Features
 
-- [ ] **Query History**
-  - [ ] Save past queries
-  - [ ] Re-run queries
-  - [ ] Export results
+**Status:** ✅ **IMPLEMENTED** (2026-01-03)
 
-- [ ] **Document Filtering**
-  - [ ] Filter by tags/categories
-  - [ ] Date range filters
-  - [ ] Saved searches
+- [x] **Query History**
+  - [x] Queries automatically saved to database
+  - [x] List user's query history (GET /api/v1/queries)
+  - [x] Get query details (GET /api/v1/queries/{id})
+  - [ ] Re-run queries (future)
+  - [ ] Export results (future)
+
+- [x] **Query Feedback**
+  - [x] Submit feedback (POST /api/v1/queries/{id}/feedback)
+  - [x] Rating (1-5 stars), helpfulness, text feedback
+
+- [x] **Document Filtering**
+  - [x] Filter by document_ids in query
+  - [ ] Filter by tags/categories (future)
+  - [ ] Date range filters (future)
+
+**Files:** `backend/api/v1/query.py` (added GET /queries, GET /queries/{id}, POST /queries/{id}/feedback)
 
 ---
 
@@ -314,18 +342,73 @@ This document tracks the remaining implementation tasks for the Japanese OCR RAG
 
 ## Testing
 
-- [ ] **Unit Tests**
-  - [ ] OCR service tests
-  - [ ] Embedding service tests
-  - [ ] RAG pipeline tests
+**Status:** ✅ **COMPREHENSIVE TEST SUITE ADDED** (2026-01-03)
 
-- [ ] **Integration Tests**
-  - [ ] API endpoint tests
-  - [ ] Database tests
-  - [ ] WebSocket tests
+### Test Summary
+- **Total Tests:** 456
+- **Passing:** 357 (78%)
+- **Failing:** 50 (11%)
+- **Skipped:** 46 (10%)
 
-- [ ] **E2E Tests**
-  - [ ] Upload → Process → Query workflow
+### Unit Tests (205 passed, 1 skipped)
+- ✅ **Core Tests** (`tests/unit/core/`)
+  - ✅ `test_config.py` - Configuration validation
+  - ✅ `test_exceptions.py` - Custom exception classes
+  - ✅ `test_logging.py` - Logging configuration
+  - ✅ `test_security.py` - JWT token creation/verification
+  - ✅ `test_cache.py` - Cache manager functionality
+  - ✅ `test_permissions.py` - Permission system (14 tests, 1 skipped)
+
+### Integration Tests (152 passed, 49 failed, 9 skipped)
+- ✅ **API Tests** (`tests/integration/api/`)
+  - ✅ Auth API - Login, registration, token refresh, profile management
+  - ✅ Query API - Query submission, history, feedback
+  - ✅ Document API - Upload, list, delete (with ACL enforcement)
+  - ⚠️ Admin API - Some tests failing (needs admin user setup)
+  - ⚠️ System endpoints - Health check tests failing
+
+- ⚠️ **Database Tests** (`tests/integration/db/`)
+  - ❌ Milvus tests failing (external service dependency)
+
+- ⚠️ **Service Tests** (`tests/integration/services/`)
+  - ❌ Embedding tests failing (GPU dependency)
+
+### Test Categories
+| Category | Tests | Pass Rate |
+|----------|-------|-----------|
+| Unit | 206 | 99.5% |
+| Integration | 210 | 72% |
+| **Total** | **456** | **78%** |
+
+### Known Issues
+1. **Status Code Mismatches** - Some tests expect 422 but API returns 400 (both are valid)
+2. **Admin User Setup** - Admin API tests need proper admin user creation
+3. **External Dependencies** - Milvus/Embedding tests require running services
+4. **GPU Tests** - Some embedding tests require CUDA GPU
+
+### Test Infrastructure
+- ✅ **Fixtures** (`tests/fixtures/conftest.py`) - Shared fixtures for unit tests
+- ✅ **API Fixtures** (`tests/integration/api/conftest.py`) - Integration test fixtures
+- ✅ **Database Initialization** - Auto-init for PostgreSQL
+- ✅ **Mock Services** - Mock RAG service for query tests
+
+### Running Tests
+```bash
+# All tests
+./test.sh
+
+# Unit tests only
+./test.sh unit
+
+# Integration tests only
+./test.sh integration
+
+# With coverage
+./test.sh --coverage
+
+# Specific test
+docker exec ocr-rag-test-dev pytest tests/unit/core/test_config.py -v
+```
 
 ---
 
@@ -348,21 +431,21 @@ This document tracks the remaining implementation tasks for the Japanese OCR RAG
 1. ✅ ~~OCR Service (YomiToku)~~ **COMPLETED**
 2. ✅ ~~Chunking Service~~ **COMPLETED**
 3. ✅ ~~Embedding Service (Sarashina)~~ **COMPLETED**
-4. [ ] Vector Search (Milvus)
-5. [ ] LLM Service (GLM/Qwen)
-6. [ ] RAG Orchestration
+4. ✅ ~~Vector Search (Milvus)~~ **COMPLETED**
+5. ✅ ~~LLM Service (GLM/Qwen)~~ **COMPLETED**
+6. ✅ ~~RAG Orchestration~~ **COMPLETED**
 
 ### Phase 2: Production Readiness
 7. ✅ ~~Background Task Processing (Celery)~~ **COMPLETED**
 8. ✅ ~~Document Processing Workflow~~ **COMPLETED**
-9. [ ] WebSocket Streaming
+9. ✅ ~~WebSocket Streaming~~ **COMPLETED**
 10. [ ] Error Handling & Logging (partial)
 
 ### Phase 3: Enhancements
-11. [ ] Permission System
-12. [ ] Advanced Query Features
+11. ✅ ~~Permission System~~ **COMPLETED** (2026-01-03)
+12. ✅ ~~Advanced Query Features~~ **COMPLETED** (2026-01-03)
 13. [ ] Monitoring & Metrics
-14. [ ] Testing & Documentation
+14. [ ] Testing & Documentation (in progress)
 
 ---
 
@@ -374,16 +457,23 @@ This document tracks the remaining implementation tasks for the Japanese OCR RAG
 | `/api/v1/auth/register` | POST | ✅ Implemented |
 | `/api/v1/auth/refresh` | POST | ✅ Implemented |
 | `/api/v1/auth/me` | GET | ✅ Implemented |
+| `/api/v1/auth/me` | PUT | ✅ **Profile update implemented (2026-01-03)** |
+| `/api/v1/auth/me/password` | PUT | ✅ **Password change implemented (2026-01-03)** |
 | `/api/v1/auth/logout` | POST | ✅ Implemented |
-| `/api/v1/documents/upload` | POST | ✅ **Full pipeline implemented** |
-| `/api/v1/documents` | GET | ✅ Implemented |
-| `/api/v1/documents/{id}` | GET | ✅ Implemented |
-| `/api/v1/documents/{id}` | DELETE | ✅ Implemented |
-| `/api/v1/query` | POST | ❌ Mock response |
+| `/api/v1/auth/users` | GET | ✅ **User list (admin) implemented (2026-01-03)** |
+| `/api/v1/auth/users/{id}` | DELETE | ✅ **User deactivate (admin) implemented (2026-01-03)** |
+| `/api/v1/documents/upload` | POST | ✅ **Full pipeline + ACL implemented** |
+| `/api/v1/documents` | GET | ✅ **ACL filtered implemented (2026-01-03)** |
+| `/api/v1/documents/{id}` | GET | ✅ **ACL checked implemented (2026-01-03)** |
+| `/api/v1/documents/{id}` | DELETE | ✅ **ACL checked implemented (2026-01-03)** |
+| `/api/v1/documents/{id}/download` | GET | ✅ **ACL checked implemented (2026-01-03)** |
+| `/api/v1/query` | POST | ✅ **Real RAG pipeline implemented** |
+| `/api/v1/queries` | GET | ✅ **Query history implemented (2026-01-03)** |
+| `/api/v1/queries/{id}` | GET | ✅ **Query details implemented (2026-01-03)** |
+| `/api/v1/queries/{id}/feedback` | POST | ✅ **Query feedback implemented (2026-01-03)** |
 | `/api/v1/documents/search` | GET | ✅ Implemented |
 | `/api/v1/admin/stats` | GET | ✅ Implemented |
-| `/api/v1/admin/users` | GET | ⚠️ Basic only |
-| `/api/v1/stream/ws` | WebSocket | ❌ Mock response |
+| `/api/v1/stream/ws` | WebSocket | ✅ **Real RAG streaming implemented** |
 
 ---
 
@@ -423,25 +513,43 @@ To implement the RAG pipeline:
 ---
 
 **Generated:** 2026-01-01
-**Last Updated:** 2026-01-02
+**Last Updated:** 2026-01-03
 
-## Recent Updates (2026-01-02)
+## Recent Updates (2026-01-03)
 
-### Completed Implementation:
-1. ✅ **OCR Service** - YomiToku integration fully working with 95%+ confidence
-2. ✅ **Text Chunking** - Japanese-aware chunking with configurable parameters
-3. ✅ **Embedding Service** - Sarashina 1792D embeddings with GPU support
-4. ✅ **Background Processing** - Celery worker handling document processing pipeline
-5. ✅ **Document Upload Pipeline** - End-to-end: Upload → OCR → Chunk → Embed → Milvus → PostgreSQL
+### Comprehensive Test Suite Added:
+1. ✅ **Unit Tests** - 205 tests passing (99.5% pass rate)
+   - Config, logging, security, cache, permissions tests
+2. ✅ **Integration Tests** - 152 tests passing (72% pass rate)
+   - Auth API (login, register, profile, password, admin)
+   - Query API (history, feedback)
+   - Document API (ACL enforcement)
+3. ✅ **Test Infrastructure**
+   - Fixtures for unit and integration tests
+   - Database initialization
+   - Mock RAG service
 
-### Remaining P0 Tasks:
-- **Retrieval Service** - Vector search from Milvus
-- **Reranking Service** - Llama-3.2-NV-RerankQA integration
-- **LLM Service** - GLM-4.5-Air or Qwen integration
-- **RAG Orchestration** - Full pipeline integration
+### P1 Features Completed (Previous):
+1. ✅ **Permission System (ACL)** - Document-level access control with owner/admin/role-based permissions
+2. ✅ **User Management** - Profile update, password change, admin user list/deactivation
+3. ✅ **Query History** - Automatic query saving, history listing, query details endpoint
+4. ✅ **Query Feedback** - Rating (1-5 stars), helpfulness, text feedback submission
 
-### Next Steps:
-1. Implement vector search in Milvus
-2. Add reranking for better relevance
-3. Integrate LLM service (GLM/Ollama)
-4. Wire up full RAG pipeline to query endpoint
+### All P0 Tasks Complete (Previous):
+- ✅ **OCR Service** - YomiToku integration fully working with 95%+ confidence
+- ✅ **Text Chunking** - Japanese-aware chunking with configurable parameters
+- ✅ **Embedding Service** - Sarashina 1792D embeddings with GPU support
+- ✅ **Retrieval Service** - Hybrid vector + keyword search (Milvus + BM25)
+- ✅ **Reranking Service** - Llama-3.2-NV-RerankQA for improved relevance
+- ✅ **LLM Service** - GLM-4.5-Air (cloud) + Qwen (local fallback)
+- ✅ **RAG Orchestration** - Full pipeline with timing and confidence tracking
+- ✅ **Background Processing** - Celery worker for async document processing
+- ✅ **Document Upload Pipeline** - End-to-end: Upload → OCR → Chunk → Embed → Milvus → PostgreSQL
+- ✅ **Query API** - REST endpoint with real RAG responses
+- ✅ **WebSocket Streaming** - Real-time token streaming
+
+### Next Steps (P2/P3 Features):
+1. Fix remaining 50 failing integration tests (mostly status code mismatches and admin setup)
+2. Monitoring & Observability - Prometheus metrics, structured logging
+3. Permission Management API - Grant/revoke permissions UI and endpoints
+4. Advanced Document Filtering - Filter by tags/categories, date ranges

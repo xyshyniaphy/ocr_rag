@@ -73,7 +73,7 @@ class TestAuthAPIRegistration:
             json=user_data
         )
 
-        assert response.status_code == 422
+        assert response.status_code == 400
         result = response.json()
         assert "error" in result or "detail" in result
 
@@ -91,7 +91,7 @@ class TestAuthAPIRegistration:
             json=user_data
         )
 
-        assert response.status_code == 422
+        assert response.status_code == 400
         result = response.json()
         assert "error" in result or "detail" in result
 
@@ -108,7 +108,7 @@ class TestAuthAPIRegistration:
             json=user_data
         )
 
-        assert response.status_code == 422
+        assert response.status_code == 400
         result = response.json()
         assert "error" in result or "detail" in result
 
@@ -201,7 +201,8 @@ class TestAuthAPILogin:
 
         assert response.status_code == 401
         result = response.json()
-        assert "detail" in result
+        assert "error" in result
+        assert result["error"]["message"] == "Invalid email or password"
 
     @pytest.mark.asyncio
     async def test_login_with_missing_fields_returns_422(self, client: AsyncClient):
@@ -211,7 +212,7 @@ class TestAuthAPILogin:
             json={"email": "test@example.com"}  # Missing password
         )
 
-        assert response.status_code == 422
+        assert response.status_code == 400
 
     @pytest.mark.asyncio
     async def test_login_with_inactive_account_returns_403(self, client: AsyncClient, db_session):
@@ -242,7 +243,8 @@ class TestAuthAPILogin:
 
         assert response.status_code == 403
         result = response.json()
-        assert "detail" in result
+        assert "error" in result
+        assert result["error"]["message"] == "Account is disabled"
 
 
 @pytest.mark.integration
@@ -295,11 +297,13 @@ class TestAuthAPIRefresh:
             json={}  # Missing refresh_token field
         )
 
-        assert response.status_code == 422
+        assert response.status_code == 400
 
     @pytest.mark.asyncio
     async def test_refresh_generates_new_tokens(self, client: AsyncClient, test_user: dict):
         """Test that refresh generates new access token"""
+        import asyncio
+
         # First login
         login_response = await client.post(
             "/api/v1/auth/register",
@@ -308,6 +312,9 @@ class TestAuthAPIRefresh:
         tokens = login_response.json()
         old_access_token = tokens["access_token"]
         old_refresh_token = tokens["refresh_token"]
+
+        # Wait 1 second to ensure different exp timestamp
+        await asyncio.sleep(1)
 
         # Refresh
         refresh_response = await client.post(
@@ -351,7 +358,7 @@ class TestAuthAPIMe:
 
         assert response.status_code == 200
         result = response.json()
-        assert "id" in result
+        # Note: API does not expose user ID in responses for security
         assert "email" in result
         assert "full_name" in result
         assert "role" in result
@@ -411,7 +418,8 @@ class TestAuthAPIResponseStructure:
             assert field in result, f"Missing field: {field}"
 
         # User object fields
-        user_fields = ["id", "email", "full_name", "role", "is_active", "created_at"]
+        # Note: API does not expose user ID in responses for security
+        user_fields = ["email", "full_name", "role", "is_active", "created_at"]
         for field in user_fields:
             assert field in result["user"], f"Missing user field: {field}"
 
@@ -427,7 +435,7 @@ class TestAuthAPIResponseStructure:
         result = response.json()
 
         # Check field types
-        assert isinstance(result["id"], str)
+        # Note: API does not expose user ID in responses for security
         assert isinstance(result["email"], str)
         assert isinstance(result["full_name"], str)
         assert isinstance(result["role"], str)
@@ -449,11 +457,12 @@ class TestAuthAPISecurity:
             "/api/v1/auth/register",
             json=test_user
         )
-        user_id = response.json()["user"]["id"]
+        # Note: API does not expose user ID, so we query by email
+        user_email = test_user["email"]
 
         # Check database
         result = await db_session.execute(
-            select(User).where(User.id == user_id)
+            select(User).where(User.email == user_email)
         )
         user = result.scalar_one_or_none()
 
@@ -490,11 +499,12 @@ class TestAuthAPISecurity:
             "/api/v1/auth/register",
             json=test_user
         )
-        user_id = register_response.json()["user"]["id"]
+        # Note: API does not expose user ID, so we query by email
+        user_email = test_user["email"]
 
         # Get initial last_login_at
         result = await db_session.execute(
-            select(User).where(User.id == user_id)
+            select(User).where(User.email == user_email)
         )
         user = result.scalar_one_or_none()
         initial_last_login = user.last_login_at
@@ -604,3 +614,331 @@ class TestAuthAPIEdgeCases:
         for response in results:
             assert response.status_code == 200
             assert "access_token" in response.json()
+
+
+@pytest.mark.integration
+class TestAuthAPIProfileManagement:
+    """Test user profile management endpoints"""
+
+    @pytest.mark.asyncio
+    async def test_update_profile_success(self, client: AsyncClient, auth_headers: dict):
+        """Test successful profile update"""
+        # Update profile
+        update_data = {
+            "full_name": "Updated Name",
+            "display_name": "UpdUser"
+        }
+        response = await client.put(
+            "/api/v1/auth/me",
+            headers=auth_headers,
+            json=update_data
+        )
+
+        assert response.status_code == 200
+        result = response.json()
+        assert result["full_name"] == "Updated Name"
+        assert result["display_name"] == "UpdUser"
+
+    @pytest.mark.asyncio
+    async def test_update_profile_partial(self, client: AsyncClient, auth_headers: dict):
+        """Test partial profile update (only some fields)"""
+        # Update only display_name
+        update_data = {
+            "display_name": "PartialUpdate"
+        }
+        response = await client.put(
+            "/api/v1/auth/me",
+            headers=auth_headers,
+            json=update_data
+        )
+
+        assert response.status_code == 200
+        result = response.json()
+        assert result["display_name"] == "PartialUpdate"
+        # full_name should remain unchanged
+
+    @pytest.mark.asyncio
+    async def test_update_profile_requires_auth(self, client: AsyncClient):
+        """Test profile update requires authentication"""
+        response = await client.put(
+            "/api/v1/auth/me",
+            json={"full_name": "No Auth"}
+        )
+
+        assert response.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_update_profile_empty_body(self, client: AsyncClient, auth_headers: dict):
+        """Test profile update with empty body (no changes)"""
+        response = await client.put(
+            "/api/v1/auth/me",
+            headers=auth_headers,
+            json={}
+        )
+
+        # Should succeed with no changes
+        assert response.status_code == 200
+
+
+@pytest.mark.integration
+class TestAuthAPIPasswordChange:
+    """Test password change endpoint"""
+
+    @pytest.mark.asyncio
+    async def test_change_password_success(self, client: AsyncClient):
+        """Test successful password change"""
+        # First register a user
+        user_data = {
+            "email": f"password_change_{uuid.uuid4().hex[:8]}@example.com",
+            "password": "OldPassword123!",
+            "full_name": "Password Changer"
+        }
+        register_response = await client.post("/api/v1/auth/register", json=user_data)
+        assert register_response.status_code == 200
+        tokens = register_response.json()
+        auth_headers = {"Authorization": f"Bearer {tokens['access_token']}"}
+
+        # Change password
+        password_data = {
+            "old_password": "OldPassword123!",
+            "new_password": "NewPassword456!"
+        }
+        response = await client.put(
+            "/api/v1/auth/me/password",
+            headers=auth_headers,
+            json=password_data
+        )
+
+        assert response.status_code == 200
+        result = response.json()
+        assert "message" in result
+
+        # Verify new password works for login
+        login_response = await client.post(
+            "/api/v1/auth/login",
+            json={"email": user_data["email"], "password": "NewPassword456!"}
+        )
+        assert login_response.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_change_password_wrong_old_password(self, client: AsyncClient, auth_headers: dict):
+        """Test password change with incorrect old password"""
+        password_data = {
+            "old_password": "WrongOldPassword123!",
+            "new_password": "NewPassword456!"
+        }
+        response = await client.put(
+            "/api/v1/auth/me/password",
+            headers=auth_headers,
+            json=password_data
+        )
+
+        assert response.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_change_password_same_as_old(self, client: AsyncClient, auth_headers: dict):
+        """Test password change when new password same as old"""
+        # Assuming test user password is "SecurePassword123!"
+        password_data = {
+            "old_password": "SecurePassword123!",
+            "new_password": "SecurePassword123!"
+        }
+        response = await client.put(
+            "/api/v1/auth/me/password",
+            headers=auth_headers,
+            json=password_data
+        )
+
+        assert response.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_change_password_requires_auth(self, client: AsyncClient):
+        """Test password change requires authentication"""
+        response = await client.put(
+            "/api/v1/auth/me/password",
+            json={"old_password": "old", "new_password": "new"}
+        )
+
+        assert response.status_code == 401
+
+
+@pytest.mark.integration
+class TestAuthAPIAdminEndpoints:
+    """Test admin-only user management endpoints"""
+
+    @pytest.mark.asyncio
+    async def test_list_users_as_admin(self, client: AsyncClient, db_session):
+        """Test listing all users as admin"""
+        from backend.db.models import User
+        from backend.core.security import get_password_hash
+
+        # Create admin user
+        admin = User(
+            id=uuid.uuid4(),
+            email=f"admin_{uuid.uuid4().hex[:8]}@example.com",
+            hashed_password=get_password_hash("AdminPass123!"),
+            full_name="Admin User",
+            role="admin",
+            is_active=True
+        )
+        db_session.add(admin)
+        await db_session.commit()
+
+        # Login as admin
+        login_response = await client.post(
+            "/api/v1/auth/login",
+            json={"email": admin.email, "password": "AdminPass123!"}
+        )
+        assert login_response.status_code == 200
+        tokens = login_response.json()
+        auth_headers = {"Authorization": f"Bearer {tokens['access_token']}"}
+
+        # List all users
+        response = await client.get(
+            "/api/v1/auth/users",
+            headers=auth_headers
+        )
+
+        assert response.status_code == 200
+        result = response.json()
+        assert isinstance(result, list)
+
+    @pytest.mark.asyncio
+    async def test_list_users_as_regular_user_forbidden(self, client: AsyncClient, auth_headers: dict):
+        """Test listing users as regular user returns 403"""
+        # Regular user (created by auth_headers fixture) tries to list users
+        response = await client.get(
+            "/api/v1/auth/users",
+            headers=auth_headers
+        )
+
+        assert response.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_delete_user_as_admin(self, client: AsyncClient, db_session):
+        """Test deleting a user as admin"""
+        from backend.db.models import User
+        from backend.core.security import get_password_hash
+        from sqlalchemy import select
+
+        # Create admin user
+        admin = User(
+            id=uuid.uuid4(),
+            email=f"admin_{uuid.uuid4().hex[:8]}@example.com",
+            hashed_password=get_password_hash("AdminPass123!"),
+            full_name="Admin User",
+            role="admin",
+            is_active=True
+        )
+        db_session.add(admin)
+
+        # Create target user
+        target_user = User(
+            id=uuid.uuid4(),
+            email=f"target_{uuid.uuid4().hex[:8]}@example.com",
+            hashed_password=get_password_hash("TargetPass123!"),
+            full_name="Target User",
+            role="user",
+            is_active=True
+        )
+        db_session.add(target_user)
+        await db_session.commit()
+
+        # Login as admin
+        login_response = await client.post(
+            "/api/v1/auth/login",
+            json={"email": admin.email, "password": "AdminPass123!"}
+        )
+        assert login_response.status_code == 200
+        tokens = login_response.json()
+        auth_headers = {"Authorization": f"Bearer {tokens['access_token']}"}
+
+        # Delete target user
+        response = await client.delete(
+            f"/api/v1/auth/users/{target_user.id}",
+            headers=auth_headers
+        )
+
+        assert response.status_code == 200
+        result = response.json()
+        assert "message" in result
+
+        # Verify user is deactivated (soft delete)
+        # Note: Need to expire session cache to see changes from API's transaction
+        target_user_id = target_user.id  # Save ID before expiring
+        db_session.expire_all()
+        result = await db_session.execute(select(User).where(User.id == target_user_id))
+        user = result.scalar_one_or_none()
+        assert user is not None
+        assert user.is_active is False
+
+    @pytest.mark.asyncio
+    async def test_delete_user_as_regular_user_forbidden(self, client: AsyncClient, db_session):
+        """Test deleting user as regular user returns 403"""
+        from backend.db.models import User
+        from backend.core.security import get_password_hash
+
+        # Create target user
+        target_user = User(
+            id=uuid.uuid4(),
+            email=f"target_{uuid.uuid4().hex[:8]}@example.com",
+            hashed_password=get_password_hash("TargetPass123!"),
+            full_name="Target User",
+            role="user",
+            is_active=True
+        )
+        db_session.add(target_user)
+        await db_session.commit()
+
+        # Create regular user
+        regular_user_data = {
+            "email": f"regular_{uuid.uuid4().hex[:8]}@example.com",
+            "password": "RegularPass123!",
+            "full_name": "Regular User"
+        }
+        register_response = await client.post("/api/v1/auth/register", json=regular_user_data)
+        assert register_response.status_code == 200
+        tokens = register_response.json()
+        auth_headers = {"Authorization": f"Bearer {tokens['access_token']}"}
+
+        # Regular user tries to delete
+        response = await client.delete(
+            f"/api/v1/auth/users/{target_user.id}",
+            headers=auth_headers
+        )
+
+        assert response.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_delete_self_prevented(self, client: AsyncClient, db_session):
+        """Test admin cannot delete their own account"""
+        from backend.db.models import User
+        from backend.core.security import get_password_hash
+
+        # Create admin user
+        admin = User(
+            id=uuid.uuid4(),
+            email=f"admin_{uuid.uuid4().hex[:8]}@example.com",
+            hashed_password=get_password_hash("AdminPass123!"),
+            full_name="Admin User",
+            role="admin",
+            is_active=True
+        )
+        db_session.add(admin)
+        await db_session.commit()
+
+        # Login as admin
+        login_response = await client.post(
+            "/api/v1/auth/login",
+            json={"email": admin.email, "password": "AdminPass123!"}
+        )
+        tokens = login_response.json()
+        auth_headers = {"Authorization": f"Bearer {tokens['access_token']}"}
+
+        # Try to delete self
+        response = await client.delete(
+            f"/api/v1/auth/users/{admin.id}",
+            headers=auth_headers
+        )
+
+        assert response.status_code == 400

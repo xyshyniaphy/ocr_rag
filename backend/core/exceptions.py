@@ -219,3 +219,39 @@ class LLMException(AppException):
             status_code=500,
             details=details,
         )
+
+
+class PermissionException(AuthorizationException):
+    """Permission denied exception for document-level access control"""
+
+    def __init__(
+        self,
+        message: str = "Permission denied",
+        details: Optional[Dict[str, Any]] = None,
+    ):
+        super().__init__(message=message, details=details)
+        self.code = "permission_denied"
+
+
+class RAGValidationError(ValidationException):
+    """RAG query validation error exception"""
+
+    def __init__(
+        self,
+        message: str,
+        details: Optional[Dict[str, Any]] = None,
+    ):
+        super().__init__(message=message, details=details)
+        self.code = "rag_validation_error"
+
+
+class RAGProcessingException(RAGException):
+    """RAG processing error exception"""
+
+    def __init__(
+        self,
+        message: str,
+        stage: Optional[str] = None,
+        details: Optional[Dict[str, Any]] = None,
+    ):
+        super().__init__(message=message, stage=stage, details=details)

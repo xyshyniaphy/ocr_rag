@@ -27,6 +27,8 @@ from backend.models.auth import (
     TokenResponse,
     UserResponse,
     RefreshTokenRequest,
+    UserUpdate,
+    ChangePasswordRequest,
 )
 
 logger = get_logger(__name__)
@@ -248,3 +250,154 @@ async def get_current_user(
     Get current authenticated user information
     """
     return UserResponse.from_user_model(current_user)
+
+
+@router.put("/me", response_model=UserResponse)
+async def update_profile(
+    request: UserUpdate,
+    current_user: UserModel = Depends(get_current_user_dependency),
+    db: AsyncSession = Depends(get_db_session),
+):
+    """
+    Update current user's profile
+    
+    - **full_name**: User's full name
+    - **display_name**: Display name (optional)
+    """
+    # Update fields if provided
+    if request.full_name is not None:
+        current_user.full_name = request.full_name
+    if request.display_name is not None:
+        current_user.display_name = request.display_name
+    
+    # Only admins can change roles
+    if request.role is not None and current_user.role == "admin":
+        current_user.role = request.role
+    elif request.role is not None and request.role != current_user.role:
+        raise ValidationException(
+            message="Only admins can change user roles",
+            details={"current_role": current_user.role, "requested_role": request.role}
+        )
+    
+    await db.commit()
+    await db.refresh(current_user)
+    
+    logger.info(f"User profile updated: {current_user.email}")
+    
+    return UserResponse.from_user_model(current_user)
+
+
+@router.put("/me/password")
+async def change_password(
+    request: ChangePasswordRequest,
+    current_user: UserModel = Depends(get_current_user_dependency),
+    db: AsyncSession = Depends(get_db_session),
+):
+    """
+    Change current user's password
+    
+    - **old_password**: Current password
+    - **new_password**: New password (min 8 characters)
+    """
+    # Verify old password
+    if not verify_password(request.old_password, current_user.hashed_password):
+        raise ValidationException(
+            message="Incorrect current password",
+            details={"field": "old_password"}
+        )
+    
+    # Check new password is different from old password
+    if verify_password(request.new_password, current_user.hashed_password):
+        raise ValidationException(
+            message="New password must be different from old password",
+            details={"field": "new_password"}
+        )
+    
+    # Update password
+    current_user.hashed_password = get_password_hash(request.new_password)
+    await db.commit()
+    
+    logger.info(f"Password changed for user: {current_user.email}")
+    
+    return {"message": "Password changed successfully"}
+
+
+# ============================================
+# Admin Endpoints
+# ============================================
+@router.get("/users", response_model=list[UserResponse])
+async def list_users(
+    db: AsyncSession = Depends(get_db_session),
+    current_user: UserModel = Depends(get_current_user_dependency),
+):
+    """
+    List all users (admin only)
+    """
+    # Check if current user is admin
+    if current_user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required"
+        )
+    
+    from sqlalchemy import select
+    
+    result = await db.execute(
+        select(UserModel).order_by(UserModel.created_at.desc())
+    )
+    users = result.scalars().all()
+    
+    return [UserResponse.from_user_model(user) for user in users]
+
+
+@router.delete("/users/{user_id}")
+async def delete_user(
+    user_id: str,
+    db: AsyncSession = Depends(get_db_session),
+    current_user: UserModel = Depends(get_current_user_dependency),
+):
+    """
+    Delete a user (admin only)
+    """
+    # Check if current user is admin
+    if current_user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required"
+        )
+    
+    # Prevent self-deletion
+    if str(current_user.id) == user_id:
+        raise ValidationException(
+            message="Cannot delete your own account",
+            details={"user_id": user_id}
+        )
+    
+    from sqlalchemy import select
+    import uuid
+    
+    # Validate UUID
+    try:
+        target_uuid = uuid.UUID(user_id)
+    except ValueError:
+        raise ValidationException(
+            message="Invalid user ID format",
+            details={"user_id": user_id}
+        )
+    
+    # Get target user
+    result = await db.execute(
+        select(UserModel).where(UserModel.id == target_uuid)
+    )
+    user = result.scalar_one_or_none()
+    
+    if not user:
+        raise NotFoundException("User")
+    
+    # Soft delete (deactivate)
+    user.is_active = False
+    await db.commit()
+    
+    logger.info(f"User deactivated: {user.email} by admin {current_user.email}")
+    
+    return {"message": "User deactivated successfully"}

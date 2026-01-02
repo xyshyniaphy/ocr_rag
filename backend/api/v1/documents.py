@@ -11,11 +11,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.logging import get_logger
 from backend.core.exceptions import NotFoundException, ValidationException
+from backend.core.permissions import PermissionChecker
 from backend.db.session import get_db_session
 from backend.db.models import Document as DocumentModel, User as UserModel
 from backend.models.auth import UserResponse
 from backend.models.document import DocumentResponse, DocumentStatusResponse, DocumentListResponse
 from backend.storage.client import upload_file, get_presigned_url, BUCKET_RAW_PDFS
+from backend.api.dependencies import get_current_user
 
 logger = get_logger(__name__)
 router = APIRouter()
@@ -26,6 +28,7 @@ async def upload_document(
     file: UploadFile = File(...),
     metadata: Optional[str] = Form(None),
     db: AsyncSession = Depends(get_db_session),
+    current_user: UserModel = Depends(get_current_user),
 ):
     """
     Upload a PDF document for processing
@@ -79,10 +82,10 @@ async def upload_document(
         except json.JSONDecodeError:
             pass
 
-    # Create document record
+    # Create document record with authenticated user as owner
     document = DocumentModel(
         id=uuid.uuid4(),
-        owner_id=uuid.uuid4(),  # TODO: Get from authenticated user
+        owner_id=current_user.id,  # Use authenticated user's ID
         filename=file.filename,
         file_size_bytes=len(content),
         file_hash=file_hash,
@@ -108,7 +111,7 @@ async def upload_document(
     document.storage_path = f"{BUCKET_RAW_PDFS}/{object_name}"
     await db.commit()
 
-    logger.info(f"Document uploaded: {document.id} - {file.filename}")
+    logger.info(f"Document uploaded: {document.id} - {file.filename} by user {current_user.email}")
 
     # Trigger background processing
     from backend.tasks.document_tasks import process_document
@@ -129,6 +132,7 @@ async def upload_document(
 async def get_document(
     document_id: str,
     db: AsyncSession = Depends(get_db_session),
+    current_user: UserModel = Depends(get_current_user),
 ):
     """Get document details"""
     from sqlalchemy import select
@@ -150,11 +154,16 @@ async def get_document(
     if not document:
         raise NotFoundException("Document")
 
+    # Check view permission
+    await PermissionChecker.require_permission(
+        db, doc_uuid, current_user.id, "can_view", current_user.role
+    )
+
     # Use from_db_model to handle proper field mapping
     owner_info = {
         "id": str(document.owner_id),
-        "email": "",
-        "full_name": "Unknown",  # TODO: Fetch from user table
+        "email": current_user.email if document.owner_id == current_user.id else "",
+        "full_name": current_user.full_name if document.owner_id == current_user.id else "Unknown",
     }
 
     return DocumentResponse.from_db_model(document, owner_info)
@@ -224,12 +233,18 @@ async def list_documents(
     offset: int = Query(0, ge=0),
     status: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db_session),
+    current_user: UserModel = Depends(get_current_user),
 ):
-    """List documents with pagination"""
-    from sqlalchemy import select, func
+    """List documents with pagination (only documents user has view access to)"""
+    from sqlalchemy import select, func, or_
+
+    # Get accessible document IDs for current user
+    accessible_ids = await PermissionChecker.get_accessible_documents(
+        db, current_user.id, "can_view", limit=None, offset=0
+    )
 
     # Build query
-    query = select(DocumentModel)
+    query = select(DocumentModel).where(DocumentModel.id.in_(accessible_ids))
 
     if status:
         query = query.where(DocumentModel.status == status)
@@ -331,6 +346,7 @@ async def delete_all_documents(
 async def delete_document(
     document_id: str,
     db: AsyncSession = Depends(get_db_session),
+    current_user: UserModel = Depends(get_current_user),
 ):
     """Delete a document"""
     from sqlalchemy import select
@@ -351,6 +367,11 @@ async def delete_document(
 
     if not document:
         raise NotFoundException("Document")
+
+    # Check delete permission
+    await PermissionChecker.require_permission(
+        db, doc_uuid, current_user.id, "can_delete", current_user.role
+    )
 
     # Hard delete with cascade cleanup across all systems
     # 1. Delete from MinIO (object storage)
@@ -375,7 +396,7 @@ async def delete_document(
     await db.delete(document)
     await db.commit()
 
-    logger.info(f"Document deleted: {document_id}")
+    logger.info(f"Document deleted: {document_id} by user {current_user.email}")
 
     return None
 
@@ -384,6 +405,7 @@ async def delete_document(
 async def download_document(
     document_id: str,
     db: AsyncSession = Depends(get_db_session),
+    current_user: UserModel = Depends(get_current_user),
 ):
     """Download the original PDF file"""
     from fastapi.responses import Response
@@ -405,6 +427,11 @@ async def download_document(
 
     if not document:
         raise NotFoundException("Document")
+
+    # Check download permission
+    await PermissionChecker.require_permission(
+        db, doc_uuid, current_user.id, "can_download", current_user.role
+    )
 
     # Generate presigned URL
     if document.storage_path:

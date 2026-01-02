@@ -122,11 +122,10 @@ class TestValidationException:
     def test_status_code_constant(self):
         """Test status code is always 400"""
         exc1 = ValidationException("Error 1")
-        exc2 = ValidationException("Error 2", status_code=500)
-        # The class should override status_code
+        exc2 = ValidationException("Error 2", details={"field": "email"})
+        # ValidationException always has status_code 400
         assert exc1.status_code == 400
-        # If parameter is passed, it should be respected
-        # (but the class default is 400)
+        assert exc2.status_code == 400
 
 
 class TestAuthenticationException:

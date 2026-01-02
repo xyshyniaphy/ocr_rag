@@ -80,11 +80,24 @@ async def websocket_endpoint(websocket: WebSocket):
 
 
 async def handle_query(websocket: WebSocket, message: dict, connection_id: str):
-    """Handle query message"""
+    """Handle query message using real RAG pipeline"""
     import time
+    from backend.services.rag import get_rag_service, RAGQueryOptions
+    from backend.core.exceptions import RAGValidationError, RAGProcessingError
 
     query_text = message.get("query", "")
     top_k = message.get("top_k", 5)
+    rerank = message.get("rerank", True)
+    document_ids = message.get("document_ids")
+
+    # Validate query
+    if not query_text or not query_text.strip():
+        await websocket.send_json({
+            "type": "error",
+            "code": "invalid_query",
+            "message": "Query cannot be empty"
+        })
+        return
 
     # Send metadata
     query_id = str(uuid.uuid4())
@@ -94,35 +107,89 @@ async def handle_query(websocket: WebSocket, message: dict, connection_id: str):
         "timestamp": time.time(),
     })
 
-    # Mock query processing
-    await websocket.send_json({
-        "type": "sources",
-        "sources": [
+    try:
+        # Build RAG options
+        options = RAGQueryOptions(
+            top_k=top_k,
+            retrieval_top_k=min(top_k * 2, 50),
+            rerank_top_k=top_k,
+            rerank=rerank,
+            retrieval_method="hybrid",
+            document_ids=document_ids,
+            include_sources=True,
+            use_cache=True,
+            language="ja",
+        )
+
+        # Get RAG service and process query
+        rag_service = get_rag_service()
+        rag_result = await rag_service.query(
+            query=query_text,
+            options=options,
+        )
+
+        # Send sources
+        sources = [
             {
-                "document_id": "00000000-0000-0000-0000-000000000000",
-                "document_title": "Sample Document",
-                "page_number": 1,
-                "relevance_score": 0.9,
+                "chunk_id": source.chunk_id,
+                "document_id": str(source.document_id),
+                "document_title": source.document_title or "Unknown Document",
+                "page_number": source.page_number,
+                "chunk_index": source.chunk_index,
+                "text": source.text[:200] + "..." if len(source.text) > 200 else source.text,
+                "relevance_score": source.score,
+                "rerank_score": source.rerank_score,
             }
+            for source in rag_result.sources
         ]
-    })
 
-    # Stream response tokens
-    response = "This is a placeholder response. The RAG pipeline is not yet implemented."
-    for word in response.split():
         await websocket.send_json({
-            "type": "token",
-            "content": word + " ",
+            "type": "sources",
+            "sources": sources,
         })
-        await asyncio.sleep(0.05)  # Simulate streaming
 
-    # Send completion
-    await websocket.send_json({
-        "type": "complete",
-        "query_id": query_id,
-        "processing_time_ms": 500,
-        "confidence": 0.8,
-    })
+        # Stream response tokens
+        response = rag_result.answer
+        for word in response.split():
+            await websocket.send_json({
+                "type": "token",
+                "content": word + " ",
+            })
+            await asyncio.sleep(0.01)  # Small delay for streaming effect
+
+        # Send completion
+        await websocket.send_json({
+            "type": "complete",
+            "query_id": query_id,
+            "processing_time_ms": rag_result.processing_time_ms,
+            "confidence": rag_result.confidence,
+            "llm_model": rag_result.llm_model,
+            "embedding_model": rag_result.embedding_model,
+        })
+
+    except RAGValidationError as e:
+        await websocket.send_json({
+            "type": "error",
+            "code": "validation_error",
+            "message": e.message,
+            "details": e.details,
+        })
+    except RAGProcessingError as e:
+        logger.error(f"RAG processing error: {e.message} (stage={e.stage})")
+        await websocket.send_json({
+            "type": "error",
+            "code": "processing_error",
+            "message": e.message,
+            "stage": e.stage,
+            "details": e.details,
+        })
+    except Exception as e:
+        logger.error(f"WebSocket query error: {e}")
+        await websocket.send_json({
+            "type": "error",
+            "code": "internal_error",
+            "message": str(e),
+        })
 
 
 # Import asyncio for the sleep

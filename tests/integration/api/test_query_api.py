@@ -755,5 +755,131 @@ class TestQueryAPIEdgeCases:
         assert response.status_code not in [400, 422]
 
 
+@pytest.mark.integration
+class TestQueryHistoryAPI:
+    """Test query history endpoints"""
+
+    @pytest.mark.asyncio
+    async def test_list_queries_requires_auth(self, client: AsyncClient):
+        """Test listing queries requires authentication"""
+        response = await client.get("/api/v1/queries")
+
+        assert response.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_list_queries_empty(self, client: AsyncClient, auth_headers: dict):
+        """Test listing queries when user has no queries"""
+        response = await client.get(
+            "/api/v1/queries",
+            headers=auth_headers
+        )
+
+        assert response.status_code == 200
+        result = response.json()
+        assert "total" in result
+        assert "limit" in result
+        assert "offset" in result
+        assert "results" in result
+        assert isinstance(result["results"], list)
+
+    @pytest.mark.asyncio
+    async def test_list_queries_with_pagination(self, client: AsyncClient, auth_headers: dict):
+        """Test listing queries with pagination parameters"""
+        response = await client.get(
+            "/api/v1/queries",
+            headers=auth_headers,
+            params={"limit": 10, "offset": 0}
+        )
+
+        assert response.status_code == 200
+        result = response.json()
+        assert result["limit"] == 10
+        assert result["offset"] == 0
+
+    @pytest.mark.asyncio
+    async def test_get_query_details_requires_auth(self, client: AsyncClient):
+        """Test getting query details requires authentication"""
+        fake_id = uuid.uuid4()
+        response = await client.get(f"/api/v1/queries/{fake_id}")
+
+        assert response.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_get_query_details_not_found(self, client: AsyncClient, auth_headers: dict):
+        """Test getting details for non-existent query"""
+        fake_id = uuid.uuid4()
+        response = await client.get(
+            f"/api/v1/queries/{fake_id}",
+            headers=auth_headers
+        )
+
+        assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_get_query_details_invalid_id(self, client: AsyncClient, auth_headers: dict):
+        """Test getting query details with invalid UUID format"""
+        response = await client.get(
+            "/api/v1/queries/invalid-uuid",
+            headers=auth_headers
+        )
+
+        assert response.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_submit_feedback_requires_auth(self, client: AsyncClient):
+        """Test submitting feedback requires authentication"""
+        fake_id = uuid.uuid4()
+        response = await client.post(
+            f"/api/v1/queries/{fake_id}/feedback",
+            json={"user_rating": 5, "is_helpful": True}
+        )
+
+        assert response.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_submit_feedback_invalid_rating(self, client: AsyncClient, auth_headers: dict):
+        """Test submitting feedback with invalid rating"""
+        fake_id = uuid.uuid4()
+        response = await client.post(
+            f"/api/v1/queries/{fake_id}/feedback",
+            headers=auth_headers,
+            json={"user_rating": 6, "is_helpful": True}  # Rating must be 1-5
+        )
+
+        assert response.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_submit_feedback_missing_fields(self, client: AsyncClient, auth_headers: dict):
+        """Test submitting feedback with missing required fields"""
+        # First, submit a query to get a real query_id
+        import json
+        query_response = await client.post(
+            "/api/v1/query",
+            headers=auth_headers,
+            json={
+                "query": "test query for feedback",
+                "top_k": 3,
+                "language": "ja"
+            }
+        )
+        # Note: May fail if RAG service isn't fully set up, but we'll get the query_id
+        if query_response.status_code == 200:
+            query_data = query_response.json()
+            query_id = query_data["query_id"]
+        else:
+            # Use a fake ID for testing validation logic
+            query_id = uuid.uuid4()
+
+        response = await client.post(
+            f"/api/v1/queries/{query_id}/feedback",
+            headers=auth_headers,
+            json={"is_helpful": True}  # Missing user_rating
+        )
+
+        # If query exists, expect validation error (400)
+        # If query doesn't exist, expect 404
+        assert response.status_code in [400, 404]
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
