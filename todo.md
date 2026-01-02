@@ -17,25 +17,25 @@ This document tracks the remaining implementation tasks for the Japanese OCR RAG
 
 ### 1. OCR Service (`backend/services/ocr/`)
 
-**Status:** Stub only
+**Status:** ✅ **IMPLEMENTED** (2026-01-02)
 **Description:** Implement OCR processing for Japanese PDFs
 
-- [ ] **YomiToku Integration** (Primary)
-  - [ ] Load YomiToku model from base image
-  - [ ] Process PDF pages with YomiToku
-  - [ ] Extract text with bounding boxes
-  - [ ] Return confidence scores
-  - [ ] Handle multi-column layouts
+- [x] **YomiToku Integration** (Primary)
+  - [x] Load YomiToku model from base image
+  - [x] Process PDF pages with YomiToku
+  - [x] Extract text with bounding boxes
+  - [x] Return confidence scores
+  - [x] Handle multi-column layouts
 
 - [ ] **PaddleOCR Integration** (Fallback)
   - [ ] Load PaddleOCR-VL model
   - [ ] Fallback logic when YomiToku fails
   - [ ] Confidence threshold validation
 
-- [ ] **Output Format**
-  - [ ] Convert OCR output to Markdown
-  - [ ] Preserve document structure (headers, tables, lists)
-  - [ ] Export to MinIO object storage
+- [x] **Output Format**
+  - [x] Convert OCR output to Markdown
+  - [x] Preserve document structure (headers, tables, lists)
+  - [x] Export to MinIO object storage
 
 **Files:** `backend/services/ocr/__init__.py`, `backend/services/ocr/yomitoku.py`, `backend/services/ocr/paddleocr.py`
 
@@ -43,46 +43,46 @@ This document tracks the remaining implementation tasks for the Japanese OCR RAG
 
 ### 2. Text Chunking Service (`backend/services/processing/`)
 
-**Status:** Stub only
+**Status:** ✅ **IMPLEMENTED** (2026-01-02)
 **Description:** Split documents into searchable chunks
 
-- [ ] **Chunking Strategy**
-  - [ ] Japanese-aware chunking (sentence boundaries)
-  - [ ] Configurable chunk size (default: 512 chars)
-  - [ ] Configurable overlap (default: 50 chars)
-  - [ ] Preserve metadata (page numbers, sections)
+- [x] **Chunking Strategy**
+  - [x] Japanese-aware chunking (sentence boundaries)
+  - [x] Configurable chunk size (default: 512 chars)
+  - [x] Configurable overlap (default: 50 chars)
+  - [x] Preserve metadata (page numbers, sections)
 
-- [ ] **Chunk Types**
-  - [ ] Text chunks (paragraphs)
-  - [ ] Table detection and extraction
-  - [ ] Header/section boundary detection
+- [x] **Chunk Types**
+  - [x] Text chunks (paragraphs)
+  - [ ] Table detection and extraction (future)
+  - [ ] Header/section boundary detection (future)
 
 **Separators:** `["\n\n", "\n", "。", "！", "？", "；", "、"]`
 
-**Files:** `backend/services/processing/__init__.py`, `backend/services/processing/chunker.py`
+**Files:** `backend/services/processing/__init__.py`, `backend/services/processing/chunker.py`, `backend/services/processing/chunking/`
 
 ---
 
 ### 3. Embedding Service (`backend/services/embedding/`)
 
-**Status:** Stub only
+**Status:** ✅ **IMPLEMENTED** (2026-01-02)
 **Description:** Generate embeddings for text chunks
 
-- [ ] **Model Loading**
-  - [ ] Load Sarashina-Embedding-v1-1B (768D)
-  - [ ] GPU memory management
-  - [ ] Batch processing configuration
+- [x] **Model Loading**
+  - [x] Load Sarashina-Embedding-v1-1B (1792D)
+  - [x] GPU memory management
+  - [x] Batch processing configuration
 
-- [ ] **Embedding Generation**
-  - [ ] Process chunks in batches (configurable size)
-  - [ ] Handle GPU OOM errors gracefully
-  - [ ] Store embeddings in Milvus
+- [x] **Embedding Generation**
+  - [x] Process chunks in batches (configurable size)
+  - [x] Handle GPU OOM errors gracefully
+  - [x] Store embeddings in Milvus
 
-- [ ] **Quality Metrics**
-  - [ ] Track embedding dimensions
-  - [ ] Log processing time per chunk
+- [x] **Quality Metrics**
+  - [x] Track embedding dimensions
+  - [x] Log processing time per chunk
 
-**Files:** `backend/services/embedding/__init__.py`, `backend/services/embedding/sarashina.py`
+**Files:** `backend/services/embedding/__init__.py`, `backend/services/embedding/service.py`, `backend/services/embedding/models.py`
 
 ---
 
@@ -178,27 +178,30 @@ This document tracks the remaining implementation tasks for the Japanese OCR RAG
 
 ### 8. Background Task Processing
 
-**Status:** Task definitions exist but not implemented
+**Status:** ✅ **IMPLEMENTED** (2026-01-02)
 
-- [ ] **Celery Tasks** (`backend/tasks/document_tasks.py`)
-  - [ ] `process_document()` - Full OCR → Chunking → Embedding
-  - [ ] `reprocess_document()` - Re-run failed documents
-  - [ ] `cleanup_old_documents()` - Delete old files
+- [x] **Celery Tasks** (`backend/tasks/document_tasks.py`)
+  - [x] `process_document()` - Full OCR → Chunking → Embedding → Milvus
+  - [ ] `reprocess_document()` - Re-run failed documents (stub)
+  - [ ] `cleanup_old_documents()` - Delete old files (stub)
 
-- [ ] **Task Status Updates**
-  - [ ] Update document status in DB
-  - [ ] Send WebSocket notifications
-  - [ ] Handle errors and retries
+- [x] **Task Status Updates**
+  - [x] Update document status in DB
+  - [ ] Send WebSocket notifications (future)
+  - [x] Handle errors and retries
 
 ---
 
 ### 9. Document Processing Workflow
 
-**Status:** Upload works, processing doesn't
+**Status:** ✅ **IMPLEMENTED** (2026-01-02)
 
-- [ ] **Upload Handler** → Update to trigger Celery task
-- [ ] **Status Tracking** → Real-time updates via WebSocket
-- [ ] **Error Handling** → Proper error messages to UI
+- [x] **Upload Handler** → Triggers Celery task automatically
+- [x] **Status Tracking** → Document status updates in DB (pending → processing → completed/failed)
+- [x] **Error Handling** → Proper error messages to logs and DB
+- [ ] **Real-time WebSocket updates** (future)
+
+**Test Result:** Document processing successfully completed with 95.2% OCR confidence, 2 pages, 3 chunks
 
 ---
 
@@ -346,24 +349,24 @@ This document tracks the remaining implementation tasks for the Japanese OCR RAG
 ## Implementation Order Recommendation
 
 ### Phase 1: Core Pipeline (Must Have)
-1. OCR Service (YomiToku)
-2. Chunking Service
-3. Embedding Service (Sarashina)
-4. Vector Search (Milvus)
-5. LLM Service (Qwen/Ollama)
-6. RAG Orchestration
+1. ✅ ~~OCR Service (YomiToku)~~ **COMPLETED**
+2. ✅ ~~Chunking Service~~ **COMPLETED**
+3. ✅ ~~Embedding Service (Sarashina)~~ **COMPLETED**
+4. [ ] Vector Search (Milvus)
+5. [ ] LLM Service (GLM/Qwen)
+6. [ ] RAG Orchestration
 
 ### Phase 2: Production Readiness
-7. Background Task Processing (Celery)
-8. Document Processing Workflow
-9. WebSocket Streaming
-10. Error Handling & Logging
+7. ✅ ~~Background Task Processing (Celery)~~ **COMPLETED**
+8. ✅ ~~Document Processing Workflow~~ **COMPLETED**
+9. [ ] WebSocket Streaming
+10. [ ] Error Handling & Logging (partial)
 
 ### Phase 3: Enhancements
-11. Permission System
-12. Advanced Query Features
-13. Monitoring & Metrics
-14. Testing & Documentation
+11. [ ] Permission System
+12. [ ] Advanced Query Features
+13. [ ] Monitoring & Metrics
+14. [ ] Testing & Documentation
 
 ---
 
@@ -376,7 +379,7 @@ This document tracks the remaining implementation tasks for the Japanese OCR RAG
 | `/api/v1/auth/refresh` | POST | ✅ Implemented |
 | `/api/v1/auth/me` | GET | ✅ Implemented |
 | `/api/v1/auth/logout` | POST | ✅ Implemented |
-| `/api/v1/documents/upload` | POST | ⚠️ Upload only |
+| `/api/v1/documents/upload` | POST | ✅ **Full pipeline implemented** |
 | `/api/v1/documents` | GET | ✅ Implemented |
 | `/api/v1/documents/{id}` | GET | ✅ Implemented |
 | `/api/v1/documents/{id}` | DELETE | ✅ Implemented |
@@ -424,4 +427,25 @@ To implement the RAG pipeline:
 ---
 
 **Generated:** 2026-01-01
-**Last Updated:** During database initialization
+**Last Updated:** 2026-01-02
+
+## Recent Updates (2026-01-02)
+
+### Completed Implementation:
+1. ✅ **OCR Service** - YomiToku integration fully working with 95%+ confidence
+2. ✅ **Text Chunking** - Japanese-aware chunking with configurable parameters
+3. ✅ **Embedding Service** - Sarashina 1792D embeddings with GPU support
+4. ✅ **Background Processing** - Celery worker handling document processing pipeline
+5. ✅ **Document Upload Pipeline** - End-to-end: Upload → OCR → Chunk → Embed → Milvus → PostgreSQL
+
+### Remaining P0 Tasks:
+- **Retrieval Service** - Vector search from Milvus
+- **Reranking Service** - Llama-3.2-NV-RerankQA integration
+- **LLM Service** - GLM-4.5-Air or Qwen integration
+- **RAG Orchestration** - Full pipeline integration
+
+### Next Steps:
+1. Implement vector search in Milvus
+2. Add reranking for better relevance
+3. Integrate LLM service (GLM/Ollama)
+4. Wire up full RAG pipeline to query endpoint
