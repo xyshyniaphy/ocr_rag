@@ -382,8 +382,9 @@ services:
       # Mount application code
       - ./backend:/app/backend:ro
       - ./frontend:/app/frontend:ro
-      # Mount tests directory
+      # Mount tests directory and configuration
       - ./tests:/app/tests:ro
+      - ./pytest.ini:/app/pytest.ini:ro
       # Test results (read-write)
       - ./test-results:/app/test-results:rw
       - ./htmlcov:/app/htmlcov:rw

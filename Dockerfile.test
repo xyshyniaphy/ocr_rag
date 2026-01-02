@@ -7,7 +7,8 @@
 FROM ocr-rag-app:dev
 
 # ========================================
-# Install test dependencies
+# Install test dependencies only
+# Test files and results are mounted as volumes
 # ========================================
 
 # Switch to root for installation
@@ -27,20 +28,6 @@ COPY requirements-test.txt /app/
 RUN uv pip install --no-cache-dir -r requirements-test.txt
 
 # ========================================
-# Copy test files and configuration
-# ========================================
-
-# Copy test files
-COPY --chown=appuser:appuser tests/ /app/tests/
-COPY pytest.ini /app/pytest.ini
-
-# Create test results directories with proper permissions
-RUN mkdir -p /app/test-results /app/htmlcov && \
-    chown -R appuser:appuser /app/test-results /app/htmlcov && \
-    chmod 644 /app/pytest.ini && \
-    chown appuser:appuser /app/pytest.ini
-
-# ========================================
 # Final configuration
 # ========================================
 
@@ -49,9 +36,6 @@ USER appuser
 
 # Set test environment variables
 ENV PYTEST_ADDOPTS="-v"
-
-# Expose test results as volumes
-VOLUME ["/app/test-results", "/app/htmlcov"]
 
 # Default command - run pytest
 # Can be overridden with docker run/test.sh arguments
