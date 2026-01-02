@@ -27,17 +27,13 @@ This document tracks the remaining implementation tasks for the Japanese OCR RAG
   - [x] Return confidence scores
   - [x] Handle multi-column layouts
 
-- [ ] **PaddleOCR Integration** (Fallback)
-  - [ ] Load PaddleOCR-VL model
-  - [ ] Fallback logic when YomiToku fails
-  - [ ] Confidence threshold validation
 
 - [x] **Output Format**
   - [x] Convert OCR output to Markdown
   - [x] Preserve document structure (headers, tables, lists)
   - [x] Export to MinIO object storage
 
-**Files:** `backend/services/ocr/__init__.py`, `backend/services/ocr/yomitoku.py`, `backend/services/ocr/paddleocr.py`
+**Files:** `backend/services/ocr/__init__.py`, `backend/services/ocr/yomitoku.py`,
 
 ---
 
