@@ -71,6 +71,9 @@ class Document(UUIDMixin, TimestampMixin, Base):
     processing_completed_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
 
     # Relationships
     chunks: Mapped[list["Chunk"]] = relationship(

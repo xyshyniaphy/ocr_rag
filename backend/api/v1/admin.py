@@ -3,7 +3,7 @@ Admin API Routes
 System administration endpoints
 """
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
@@ -12,6 +12,7 @@ from backend.core.config import settings
 from backend.db.session import get_db_session
 from backend.db.models import User as UserModel, Document as DocumentModel
 from backend.db.models import Query as QueryModel
+from backend.monitoring import get_metrics
 
 logger = get_logger(__name__)
 router = APIRouter()
@@ -22,13 +23,13 @@ async def get_system_stats(
     db: AsyncSession = Depends(get_db_session),
 ):
     """Get system usage statistics"""
-    # Document stats
+    # Document stats (excluding soft-deleted documents)
     doc_result = await db.execute(
         select(
             func.count(DocumentModel.id).label("total"),
             func.sum(DocumentModel.chunk_count).label("total_chunks"),
             func.sum(DocumentModel.page_count).label("total_pages"),
-        )
+        ).where(DocumentModel.deleted_at.is_(None))
     )
     doc_stats = doc_result.first()
 
@@ -75,14 +76,37 @@ async def list_users(
     db: AsyncSession = Depends(get_db_session),
 ):
     """List all users (admin only)"""
-    # TODO: Implement proper pagination and filtering
+    from fastapi import Query
+
+    # Validate pagination parameters
+    if limit < 0:
+        from backend.core.exceptions import ValidationException
+        raise ValidationException(
+            message="Invalid pagination parameter",
+            details={"limit": limit, "error": "limit must be non-negative"}
+        )
+    if offset < 0:
+        from backend.core.exceptions import ValidationException
+        raise ValidationException(
+            message="Invalid pagination parameter",
+            details={"offset": offset, "error": "offset must be non-negative"}
+        )
+
+    # Enforce maximum limit of 100
+    limit = min(limit, 100)
+
+    # Get total count first
+    count_result = await db.execute(select(func.count(UserModel.id)))
+    total = count_result.scalar()
+
+    # Get paginated users
     result = await db.execute(
         select(UserModel).offset(offset).limit(limit)
     )
     users = result.scalars().all()
 
     return {
-        "total": len(users),
+        "total": total,
         "limit": limit,
         "offset": offset,
         "results": [
@@ -96,3 +120,14 @@ async def list_users(
             for user in users
         ],
     }
+
+
+@router.get("/metrics")
+async def prometheus_metrics():
+    """
+    Prometheus metrics endpoint
+
+    Returns metrics in Prometheus exposition format for scraping by Prometheus server.
+    """
+    metrics = get_metrics()
+    return Response(content=metrics, media_type="text/plain")

@@ -86,6 +86,7 @@ ocr_rag/
 | Streamlit Admin UI | http://localhost:8501 | Web interface |
 | WebSocket | ws://localhost:8000/api/v1/stream/ws | Real-time updates |
 | MinIO Console | http://localhost:9001 | Object storage (dev only) |
+| Prometheus Metrics | http://localhost:8000/api/v1/admin/metrics | Metrics scraping endpoint |
 
 **Optional Services** (require profiles):
 | Service | Profile | URL |
@@ -196,6 +197,65 @@ Set the `LLM_PROVIDER` environment variable:
 - `ollama` - Use local Ollama (fallback)
 
 The system automatically selects the appropriate client based on this setting.
+
+## API Endpoints
+
+### Authentication & User Management
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/v1/auth/login` | POST | Login and get access token |
+| `/api/v1/auth/register` | POST | Register new user |
+| `/api/v1/auth/refresh` | POST | Refresh access token |
+| `/api/v1/auth/me` | GET | Get current user profile |
+| `/api/v1/auth/me` | PUT | Update user profile |
+| `/api/v1/auth/me/password` | PUT | Change password |
+| `/api/v1/auth/logout` | POST | Logout |
+| `/api/v1/auth/users` | GET | List all users (admin) |
+| `/api/v1/auth/users/{id}` | DELETE | Deactivate user (admin) |
+
+### Document Management
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/v1/documents/upload` | POST | Upload PDF document |
+| `/api/v1/documents` | GET | List documents (with filters) |
+| `/api/v1/documents/{id}` | GET | Get document details |
+| `/api/v1/documents/{id}` | DELETE | Delete document (soft delete) |
+| `/api/v1/documents/{id}/download` | GET | Download original PDF |
+| `/api/v1/documents/{id}/status` | GET | Get processing status |
+
+**Query Parameters for `/api/v1/documents`:**
+- `status`: Filter by status (pending, processing, completed, failed)
+- `category`: Filter by category
+- `date_from`: Filter documents created after this date (ISO 8601)
+- `date_to`: Filter documents created before this date (ISO 8601)
+- `limit`: Page size (1-100, default 20)
+- `offset`: Page offset (default 0)
+
+### Query & RAG
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/v1/query` | POST | Submit RAG query |
+| `/api/v1/queries` | GET | List query history |
+| `/api/v1/queries/{id}` | GET | Get query details |
+| `/api/v1/queries/{id}/feedback` | POST | Submit query feedback |
+| `/api/v1/stream/ws` | WebSocket | Real-time query streaming |
+
+### Permissions Management
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/v1/permissions/{document_id}` | GET | List document permissions |
+| `/api/v1/permissions/{document_id}/grant` | POST | Grant permission to user |
+| `/api/v1/permissions/{document_id}/revoke` | DELETE | Revoke permission from user |
+| `/api/v1/permissions/user/{user_id}` | GET | List user permissions |
+
+**Permission Types:** `can_view`, `can_download`, `can_delete`
+
+### Admin & Monitoring
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/v1/admin/stats` | GET | Get system statistics |
+| `/api/v1/admin/users` | GET | List all users (paginated) |
+| `/api/v1/admin/metrics` | GET | Prometheus metrics endpoint |
 
 ## Module Import Conventions
 
@@ -355,15 +415,15 @@ Container File System (Volume Mounts - Read-Write):
 ### Test Summary (2026-01-03)
 
 - **Total Tests:** 456
-- **Passing:** 357 (78%)
-- **Failing:** 50 (11%)
+- **Passing:** 378 (83%)
+- **Failing:** 29 (6%)
 - **Skipped:** 46 (10%)
 
 | Category | Tests | Pass Rate | Status |
 |----------|-------|-----------|--------|
 | **Unit** | 206 | 99.5% | ✅ Excellent |
-| **Integration** | 210 | 72% | ⚠️ Good |
-| **Total** | **456** | **78%** | ✅ Good |
+| **Integration** | 210 | 82% | ✅ Good |
+| **Total** | **456** | **83%** | ✅ Good |
 
 ### Unit Tests (205 passed, 1 skipped)
 - ✅ `test_config.py` - Configuration validation
@@ -373,11 +433,12 @@ Container File System (Volume Mounts - Read-Write):
 - ✅ `test_cache.py` - Cache manager functionality
 - ✅ `test_permissions.py` - Permission system (14 tests, 1 skipped)
 
-### Integration Tests (152 passed, 49 failed, 9 skipped)
+### Integration Tests (173 passed, 29 failed, 9 skipped)
 - ✅ **Auth API** - Login, registration, token refresh, profile management
 - ✅ **Query API** - Query submission, history, feedback
 - ✅ **Document API** - Upload, list, delete (with ACL enforcement)
-- ⚠️ **Admin API** - Some tests failing (needs admin user setup)
+- ✅ **Admin API** - Stats, user list, metrics endpoint
+- ✅ **Permissions API** - Grant/revoke/list permissions
 - ⚠️ **Database Tests** - Milvus tests failing (external service dependency)
 - ⚠️ **Service Tests** - Embedding tests failing (GPU dependency)
 

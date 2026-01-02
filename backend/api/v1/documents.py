@@ -60,10 +60,13 @@ async def upload_document(
     # Calculate hash
     file_hash = hashlib.sha256(content).hexdigest()
 
-    # Check for duplicates
+    # Check for duplicates (excluding soft-deleted documents)
     from sqlalchemy import select
     result = await db.execute(
-        select(DocumentModel).where(DocumentModel.file_hash == file_hash)
+        select(DocumentModel).where(
+            DocumentModel.file_hash == file_hash,
+            DocumentModel.deleted_at.is_(None)
+        )
     )
     existing = result.scalar_one_or_none()
     if existing:
@@ -231,23 +234,64 @@ async def get_document_status(
 async def list_documents(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
-    status: Optional[str] = Query(None),
+    status: Optional[str] = Query(None, description="Filter by document status"),
+    category: Optional[str] = Query(None, description="Filter by document category"),
+    date_from: Optional[str] = Query(None, description="Filter documents created after this date (ISO 8601 format)"),
+    date_to: Optional[str] = Query(None, description="Filter documents created before this date (ISO 8601 format)"),
     db: AsyncSession = Depends(get_db_session),
     current_user: UserModel = Depends(get_current_user),
 ):
-    """List documents with pagination (only documents user has view access to)"""
+    """
+    List documents with pagination and filtering
+
+    Only returns documents the user has view access to.
+
+    Filters:
+    - status: Filter by document status (pending, processing, completed, failed)
+    - category: Filter by document category
+    - date_from: Filter documents created after this date (ISO 8601 format)
+    - date_to: Filter documents created before this date (ISO 8601 format)
+    """
     from sqlalchemy import select, func, or_
+    from datetime import datetime
 
     # Get accessible document IDs for current user
     accessible_ids = await PermissionChecker.get_accessible_documents(
         db, current_user.id, "can_view", limit=None, offset=0
     )
 
-    # Build query
-    query = select(DocumentModel).where(DocumentModel.id.in_(accessible_ids))
+    # Build query (exclude soft-deleted documents)
+    query = select(DocumentModel).where(
+        DocumentModel.id.in_(accessible_ids),
+        DocumentModel.deleted_at.is_(None)
+    )
 
+    # Apply filters
     if status:
         query = query.where(DocumentModel.status == status)
+
+    if category:
+        query = query.where(DocumentModel.category == category)
+
+    if date_from:
+        try:
+            from_date = datetime.fromisoformat(date_from.replace('Z', '+00:00'))
+            query = query.where(DocumentModel.created_at >= from_date)
+        except ValueError:
+            raise ValidationException(
+                message="Invalid date format",
+                details={"date_from": date_from, "expected_format": "ISO 8601"}
+            )
+
+    if date_to:
+        try:
+            to_date = datetime.fromisoformat(date_to.replace('Z', '+00:00'))
+            query = query.where(DocumentModel.created_at <= to_date)
+        except ValueError:
+            raise ValidationException(
+                message="Invalid date format",
+                details={"date_to": date_to, "expected_format": "ISO 8601"}
+            )
 
     # Get total count
     count_query = select(func.count()).select_from(query.subquery())
@@ -348,7 +392,7 @@ async def delete_document(
     db: AsyncSession = Depends(get_db_session),
     current_user: UserModel = Depends(get_current_user),
 ):
-    """Delete a document"""
+    """Delete a document (soft delete)"""
     from sqlalchemy import select
 
     # Validate UUID format
@@ -373,30 +417,11 @@ async def delete_document(
         db, doc_uuid, current_user.id, "can_delete", current_user.role
     )
 
-    # Hard delete with cascade cleanup across all systems
-    # 1. Delete from MinIO (object storage)
-    if document.storage_path:
-        try:
-            from backend.storage.client import delete_file
-            bucket, object_name = document.storage_path.split('/', 1)
-            await delete_file(bucket, object_name)
-            logger.info(f"Deleted file from MinIO: {document.storage_path}")
-        except Exception as e:
-            logger.warning(f"Failed to delete file from MinIO: {e}")
-
-    # 2. Delete from Milvus (vector database)
-    try:
-        from backend.db.vector.client import delete_by_document
-        await delete_by_document(str(document.id))
-        logger.info(f"Deleted chunks from Milvus: {document.id}")
-    except Exception as e:
-        logger.warning(f"Failed to delete chunks from Milvus: {e}")
-
-    # 3. Delete from PostgreSQL (CASCADE auto-deletes chunk records)
-    await db.delete(document)
+    # Soft delete: Set deleted_at timestamp instead of removing from database
+    document.deleted_at = datetime.utcnow()
     await db.commit()
 
-    logger.info(f"Document deleted: {document_id} by user {current_user.email}")
+    logger.info(f"Document soft-deleted: {document_id} by user {current_user.email}")
 
     return None
 

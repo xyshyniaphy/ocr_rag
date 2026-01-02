@@ -16,7 +16,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from backend.core.config import settings
 from backend.core.logging import setup_logging, get_logger
 from backend.core.exceptions import AppException
-from backend.api.v1 import auth, documents, query, admin, stream
+from backend.api.v1 import auth, documents, query, admin, stream, permissions
 
 # Setup logging
 setup_logging()
@@ -182,6 +182,12 @@ app.include_router(
     stream.router,
     prefix="/api/v1/stream",
     tags=["WebSocket"]
+)
+
+app.include_router(
+    permissions.router,
+    prefix="/api/v1/permissions",
+    tags=["Permissions"]
 )
 
 

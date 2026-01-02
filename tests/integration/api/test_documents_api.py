@@ -104,17 +104,11 @@ class TestDocumentsListAPI:
 
     @pytest.mark.asyncio
     async def test_list_documents_unauthorized(self, client: AsyncClient):
-        """Test documents list without authentication
-
-        NOTE: Current implementation does not enforce authentication.
-        This test documents the current behavior but should be updated
-        when authentication is properly enforced.
-        """
+        """Test documents list without authentication"""
         response = await client.get("/api/v1/documents")
 
-        # TODO: Should return 401 when authentication is enforced
-        # Currently returns 200 (no auth check)
-        assert response.status_code == 200
+        # Should return 401 when authentication is enforced
+        assert response.status_code == 401
 
 
 @pytest.mark.integration
@@ -281,18 +275,12 @@ class TestDocumentDeleteAPI:
 
     @pytest.mark.asyncio
     async def test_delete_document_unauthorized(self, client: AsyncClient):
-        """Test deletion without authentication
-
-        NOTE: Current implementation does not enforce authentication.
-        This test documents the current behavior but should be updated
-        when authentication is properly enforced.
-        """
+        """Test deletion without authentication"""
         fake_id = uuid.uuid4()
         response = await client.delete(f"/api/v1/documents/{fake_id}")
 
-        # TODO: Should return 401 when authentication is enforced
-        # Currently returns 404 (document not found, no auth check)
-        assert response.status_code == 404
+        # Should return 401 when authentication is enforced
+        assert response.status_code == 401
 
 
 @pytest.mark.integration
