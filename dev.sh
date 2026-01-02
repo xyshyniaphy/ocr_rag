@@ -220,7 +220,7 @@ Commands:
   help               Show this help message
 
 Services for logs command:
-  app, postgres, milvus, etcd, minio, redis, ollama, pgadmin,
+  app, postgres, milvus, etcd, minio, redis, ollama, worker, pgadmin,
   prometheus, grafana
 
 Examples:

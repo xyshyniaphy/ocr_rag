@@ -254,6 +254,112 @@ services:
       - ocr-rag-net
 
   # ============================================
+  # CELERY WORKER (Background Task Processing)
+  # ============================================
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.app
+    image: ocr-rag-app:dev
+    container_name: ocr-rag-worker-dev
+    hostname: worker
+    restart: unless-stopped
+    environment:
+      # Application
+      - APP_NAME=Japanese OCR RAG System
+      - DEBUG=true
+      - ENVIRONMENT=development
+
+      # Security
+      - SECRET_KEY=dev-secret-key-change-in-production-12345
+
+      # Database
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=raguser
+      - POSTGRES_PASSWORD=rag_password_dev
+      - POSTGRES_DB=rag_metadata
+
+      # Milvus
+      - MILVUS_HOST=milvus
+      - MILVUS_PORT=19530
+
+      # MinIO
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin
+      - MINIO_USE_SSL=false
+
+      # Redis (Celery broker)
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+
+      # Ollama
+      - OLLAMA_HOST=ollama:11434
+
+      # OCR
+      - OCR_ENGINE=yomitoku
+      - OCR_CONFIDENCE_THRESHOLD=0.85
+
+      # Embedding
+      - EMBEDDING_MODEL=sbintuitions/sarashina-embedding-v1-1b
+      - EMBEDDING_DEVICE=cuda:0
+      - EMBEDDING_BATCH_SIZE=64
+
+      # GPU
+      - CUDA_VISIBLE_DEVICES=0
+
+      # Celery worker settings
+      - CELERY_WORKER_LOG_LEVEL=INFO
+      - CELERY_WORKER_CONCURRENCY=2
+      - CELERY_WORKER_PREFETCH_MULTIPLIER=1
+
+    volumes:
+      # Mount application code
+      - ./backend:/app/backend:ro
+      # Data and logs
+      - ./data:/app/data
+      - ./logs:/app/logs
+      # Override entrypoint for development
+      - ./deployment/docker/entrypoint-dev.sh:/app/entrypoint.sh:ro
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      milvus:
+        condition: service_healthy
+      minio:
+        condition: service_started
+
+    # Worker command - run Celery worker
+    command: >
+      bash -c "
+        cd /app &&
+        celery -A backend.tasks.celery_app worker
+          --loglevel=info
+          --concurrency=2
+          --hostname=worker@%h
+          --max-tasks-per-child=100
+          --pidfile=/tmp/celery-worker.pid
+      "
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+    networks:
+      - ocr-rag-net
+
+  # ============================================
   # PGADMIN (PostgreSQL Management - Optional)
   # ============================================
   pgadmin:

@@ -63,17 +63,183 @@ def process_document(self, document_id: str) -> Dict[str, Any]:
                 await db.commit()
                 logger.info(f"Document status updated to: processing")
 
-                # TODO: Implement actual processing pipeline
-                # For now, simulate processing with placeholder data
+                # ===== IMPLEMENTATION: Document Processing Pipeline =====
+                from backend.storage.client import download_file, BUCKET_RAW_PDFS, init_minio
+                from backend.db.vector.client import init_milvus
 
-                # Simulate OCR processing
-                await asyncio.sleep(1)
+                # Initialize storage and vector DB clients
+                await init_minio()
+                await init_milvus()
+                from backend.services.ocr.yomitoku import YomiTokuOCREngine
+                from backend.services.ocr.models import OCROptions
+                from backend.services.processing.chunking.strategies import JapaneseRecursiveSplitter
+                from backend.services.processing.chunking.models import ChunkingOptions
+                from backend.services.embedding.service import EmbeddingService
+                from backend.models.chunk import Chunk as ChunkModel
+                from pymilvus import Collection, connections
+                import numpy as np
+                from datetime import datetime
 
-                # Update document with placeholder results
+                # 1. Download PDF from MinIO
+                logger.info(f"Downloading PDF from MinIO: {document.storage_path}")
+                try:
+                    # storage_path format: "raw-pdfs/{document_id}/{filename}"
+                    # Need to extract object_name
+                    object_name = document.storage_path.split("/", 1)[1]
+                    pdf_bytes = await download_file(BUCKET_RAW_PDFS, object_name)
+                    logger.info(f"PDF downloaded successfully: {len(pdf_bytes)} bytes")
+                except Exception as e:
+                    logger.error(f"Failed to download PDF from MinIO: {e}")
+                    raise
+
+                # 2. Run OCR using YomiToku
+                logger.info("Starting OCR processing...")
+                ocr_engine = YomiTokuOCREngine(
+                    options=OCROptions(
+                        engine="yomitoku",
+                        confidence_threshold=0.85,
+                    )
+                )
+
+                # Load OCR model
+                await ocr_engine.load_model()
+
+                # Convert PDF to images and run OCR
+                # For simplicity, we'll use pdf2image to convert PDF pages to images
+                import pdf2image
+                import io
+
+                # Convert PDF bytes to PIL images
+                pdf_images = pdf2image.convert_from_bytes(
+                    pdf_bytes,
+                    dpi=200,
+                    fmt='png'
+                )
+
+                logger.info(f"PDF has {len(pdf_images)} pages")
+
+                # Process each page with OCR
+                ocr_pages = []
+                total_confidence = 0.0
+
+                for page_num, image in enumerate(pdf_images, start=1):
+                    logger.info(f"Processing page {page_num}/{len(pdf_images)}...")
+
+                    # Convert PIL image to bytes
+                    img_bytes = io.BytesIO()
+                    image.save(img_bytes, format='PNG')
+                    img_bytes = img_bytes.getvalue()
+
+                    # Run OCR
+                    ocr_page = await ocr_engine.process_page(
+                        img_bytes,
+                        page_number=page_num,
+                    )
+
+                    ocr_pages.append(ocr_page)
+                    total_confidence += ocr_page.confidence
+                    logger.info(f"Page {page_num} OCR complete: {len(ocr_page.text)} chars, confidence={ocr_page.confidence:.2f}")
+
+                avg_confidence = total_confidence / len(ocr_pages) if ocr_pages else 0.0
+                logger.info(f"OCR complete: {len(ocr_pages)} pages, avg confidence={avg_confidence:.2f}")
+
+                # 3. Chunk text using Japanese-aware splitter
+                logger.info("Starting text chunking...")
+                chunking_options = ChunkingOptions(
+                    chunk_size=512,
+                    chunk_overlap=50,
+                    min_chunk_size=20,
+                )
+                chunker = JapaneseRecursiveSplitter(chunking_options)
+
+                all_chunks = []
+                chunk_index = 0
+
+                for ocr_page in ocr_pages:
+                    chunks = await chunker.chunk_page(
+                        ocr_page,
+                        document_id=str(document.id),
+                        chunk_start_index=chunk_index,
+                    )
+                    all_chunks.extend(chunks)
+                    chunk_index += len(chunks)
+
+                logger.info(f"Chunking complete: {len(all_chunks)} chunks created")
+
+                # 4. Generate embeddings using Sarashina
+                logger.info("Generating embeddings...")
+                embedding_service = EmbeddingService()
+                await embedding_service.initialize()
+
+                # Batch embed chunks
+                chunk_texts = [chunk.text for chunk in all_chunks]
+                embedding_result = await embedding_service.embed_texts(chunk_texts)
+
+                logger.info(f"Embeddings generated: {embedding_result.total_embeddings} vectors")
+
+                # 5. Insert into Milvus (vector DB)
+                logger.info("Inserting chunks into Milvus...")
+                connections.connect("default", host="milvus", port="19530")
+                collection = Collection("document_chunks")
+
+                # Prepare data for Milvus insertion
+                milvus_data = []
+                chunk_records = []
+
+                for i, (chunk, text_embedding) in enumerate(zip(all_chunks, embedding_result.embeddings)):
+                    # Create PostgreSQL chunk record
+                    milvus_id = f"{document.id}_chunk_{i}"
+
+                    chunk_record = ChunkModel(
+                        id=uuid.UUID(chunk.chunk_id),
+                        document_id=document.id,
+                        milvus_id=milvus_id,
+                        page_number=chunk.metadata.page_number,
+                        chunk_index=chunk.metadata.chunk_index,
+                        text_content=chunk.text,
+                        token_count=chunk.token_count,
+                        chunk_type=chunk.metadata.chunk_type,
+                        section_header=chunk.metadata.section_header,
+                        confidence=chunk.metadata.confidence,
+                        embedding_model="sbintuitions/sarashina-embedding-v1-1b",
+                        embedding_dimension=1792,
+                        embedding_created_at=datetime.utcnow(),
+                    )
+
+                    chunk_records.append(chunk_record)
+
+                    # Prepare Milvus data
+                    milvus_data.append({
+                        "chunk_id": chunk.chunk_id,
+                        "embedding": text_embedding.embedding.vector,
+                        "text_content": chunk.text,
+                        "document_id": str(document.id),
+                        "page_number": chunk.metadata.page_number,
+                        "chunk_index": chunk.metadata.chunk_index,
+                        "metadata": {
+                            "token_count": chunk.token_count,
+                            "chunk_type": chunk.metadata.chunk_type,
+                            "confidence": chunk.metadata.confidence,
+                            "created_at": datetime.utcnow().isoformat(),
+                            "filename": document.filename,
+                        }
+                    })
+
+                # Bulk insert PostgreSQL chunks
+                db.add_all(chunk_records)
+                await db.commit()
+                logger.info(f"Inserted {len(chunk_records)} chunk records into PostgreSQL")
+
+                # Bulk insert Milvus vectors
+                collection.insert(milvus_data)
+                collection.flush()
+                logger.info(f"Inserted {len(milvus_data)} vectors into Milvus")
+
+                # 6. Update document status
                 document.status = "completed"
-                document.page_count = 1
-                document.chunk_count = 1
-                document.ocr_confidence = 0.95
+                document.page_count = len(ocr_pages)
+                document.chunk_count = len(all_chunks)
+                document.ocr_confidence = avg_confidence
                 document.processing_completed_at = datetime.utcnow()
 
                 await db.commit()
