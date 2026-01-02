@@ -92,7 +92,7 @@ async def upload_document(
         keywords=json.dumps(metadata_dict.get("keywords", [])) if metadata_dict.get("keywords") else None,
         language=metadata_dict.get("language", "ja"),
         category=metadata_dict.get("category"),
-        metadata=metadata_dict,
+        doc_metadata=json.dumps(metadata_dict) if metadata_dict else None,
         status="pending",
     )
 
@@ -131,24 +131,34 @@ async def get_document(
     """Get document details"""
     from sqlalchemy import select
 
+    # Validate UUID format
+    try:
+        doc_uuid = uuid.UUID(document_id)
+    except ValueError:
+        raise ValidationException(
+            message="Invalid document ID format",
+            details={"document_id": document_id, "expected_format": "UUID"}
+        )
+
     result = await db.execute(
-        select(DocumentModel).where(DocumentModel.id == uuid.UUID(document_id))
+        select(DocumentModel).where(
+            DocumentModel.id == doc_uuid,
+            DocumentModel.deleted_at.is_(None)
+        )
     )
     document = result.scalar_one_or_none()
 
     if not document:
         raise NotFoundException("Document")
 
-    # Get owner info
+    # Use from_db_model to handle proper field mapping
     owner_info = {
-        "user_id": str(document.owner_id),
-        "name": "Unknown",  # TODO: Fetch from user table
+        "id": str(document.owner_id),
+        "email": "",
+        "full_name": "Unknown",  # TODO: Fetch from user table
     }
 
-    response_data = DocumentResponse.model_validate(document).model_dump()
-    response_data["owner"] = owner_info
-
-    return DocumentResponse(**response_data)
+    return DocumentResponse.from_db_model(document, owner_info)
 
 
 @router.get("/{document_id}/status", response_model=DocumentStatusResponse)
@@ -159,8 +169,17 @@ async def get_document_status(
     """Get document processing status"""
     from sqlalchemy import select
 
+    # Validate UUID format
+    try:
+        doc_uuid = uuid.UUID(document_id)
+    except ValueError:
+        raise ValidationException(
+            message="Invalid document ID format",
+            details={"document_id": document_id, "expected_format": "UUID"}
+        )
+
     result = await db.execute(
-        select(DocumentModel).where(DocumentModel.id == uuid.UUID(document_id))
+        select(DocumentModel).where(DocumentModel.id == doc_uuid)
     )
     document = result.scalar_one_or_none()
 
@@ -176,7 +195,7 @@ async def get_document_status(
         current_stage = "queued"
     elif document.status == "processing":
         progress = 50
-        current_stage = document.ocr_status or "processing"
+        current_stage = "processing"
     elif document.status == "completed":
         progress = 100
         current_stage = "completed"
@@ -191,7 +210,7 @@ async def get_document_status(
         current_stage=current_stage,
         stages={
             "upload": {"status": "completed"},
-            "ocr": {"status": document.ocr_status or "pending"},
+            "ocr": {"status": "pending"},
             "chunking": {"status": "pending"},
             "embedding": {"status": "pending"},
         },
@@ -230,7 +249,7 @@ async def list_documents(
         total=total,
         limit=limit,
         offset=offset,
-        results=[DocumentResponse.model_validate(doc) for doc in documents],
+        results=[DocumentResponse.from_db_model(doc) for doc in documents],
     )
 
 
@@ -242,8 +261,17 @@ async def delete_document(
     """Delete a document"""
     from sqlalchemy import select
 
+    # Validate UUID format
+    try:
+        doc_uuid = uuid.UUID(document_id)
+    except ValueError:
+        raise ValidationException(
+            message="Invalid document ID format",
+            details={"document_id": document_id, "expected_format": "UUID"}
+        )
+
     result = await db.execute(
-        select(DocumentModel).where(DocumentModel.id == uuid.UUID(document_id))
+        select(DocumentModel).where(DocumentModel.id == doc_uuid)
     )
     document = result.scalar_one_or_none()
 
@@ -268,8 +296,17 @@ async def download_document(
     from fastapi.responses import Response
     from sqlalchemy import select
 
+    # Validate UUID format
+    try:
+        doc_uuid = uuid.UUID(document_id)
+    except ValueError:
+        raise ValidationException(
+            message="Invalid document ID format",
+            details={"document_id": document_id, "expected_format": "UUID"}
+        )
+
     result = await db.execute(
-        select(DocumentModel).where(DocumentModel.id == uuid.UUID(document_id))
+        select(DocumentModel).where(DocumentModel.id == doc_uuid)
     )
     document = result.scalar_one_or_none()
 
@@ -294,8 +331,17 @@ async def get_document_thumbnail(
     from fastapi.responses import Response
     from sqlalchemy import select
 
+    # Validate UUID format
+    try:
+        doc_uuid = uuid.UUID(document_id)
+    except ValueError:
+        raise ValidationException(
+            message="Invalid document ID format",
+            details={"document_id": document_id, "expected_format": "UUID"}
+        )
+
     result = await db.execute(
-        select(DocumentModel).where(DocumentModel.id == uuid.UUID(document_id))
+        select(DocumentModel).where(DocumentModel.id == doc_uuid)
     )
     document = result.scalar_one_or_none()
 

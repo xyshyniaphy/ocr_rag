@@ -5,7 +5,8 @@ Request/response schemas for document endpoints
 
 from datetime import datetime
 from typing import List, Optional, Dict, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+import json
 
 # Import SQLAlchemy model
 from backend.db.models import Document as DocumentSQLModel
@@ -48,7 +49,49 @@ class DocumentResponse(BaseModel):
     processing_completed_at: Optional[datetime]
     owner: Dict[str, str]
 
-    model_config = {"from_attributes": True}
+    @classmethod
+    def from_db_model(cls, doc: DocumentSQLModel, owner_info: Optional[Dict] = None) -> "DocumentResponse":
+        """Create DocumentResponse from database model"""
+        # Parse keywords from JSON string
+        keywords_list = []
+        if doc.keywords:
+            try:
+                keywords_list = json.loads(doc.keywords) if isinstance(doc.keywords, str) else doc.keywords
+            except (json.JSONDecodeError, TypeError):
+                keywords_list = []
+
+        # Parse metadata from JSON string
+        metadata_dict = {}
+        if doc.doc_metadata:
+            try:
+                metadata_dict = json.loads(doc.doc_metadata) if isinstance(doc.doc_metadata, str) else doc.doc_metadata
+            except (json.JSONDecodeError, TypeError):
+                metadata_dict = {}
+
+        # Create owner info
+        owner_dict = owner_info or {"id": str(doc.owner_id), "email": "", "full_name": ""}
+
+        return cls(
+            document_id=str(doc.id),
+            filename=doc.filename,
+            file_size_bytes=doc.file_size_bytes,
+            file_hash=doc.file_hash,
+            content_type=doc.content_type,
+            title=doc.title,
+            author=doc.author,
+            keywords=keywords_list,
+            language=doc.language,
+            category=doc.category,
+            metadata=metadata_dict,
+            status=doc.status,
+            page_count=doc.page_count,
+            chunk_count=doc.chunk_count or 0,
+            ocr_confidence=doc.ocr_confidence,
+            thumbnail_url=doc.thumbnail_url,
+            uploaded_at=doc.created_at,
+            processing_completed_at=doc.processing_completed_at,
+            owner=owner_dict,
+        )
 
 
 class DocumentStatusResponse(BaseModel):
