@@ -307,6 +307,32 @@ class RAGService:
         # Limit to top_k results
         reranked_chunks = reranked_chunks[: opts.top_k]
 
+        # Early return if no chunks retrieved (empty database or no matches)
+        if not reranked_chunks:
+            total_time_ms = (time.time() - start_time) * 1000
+            logger.warning(
+                f"No relevant documents found for query: {query[:100]}... (id={query_id})"
+            )
+            # Return a helpful response instead of throwing an error
+            return RAGResult(
+                query=query,
+                answer="申し訳ございません。ご質問に関連するドキュメントが見つかりませんでした。別のキーワードで試してください。\n\n(No relevant documents found. Please try different keywords.)",
+                sources=[],
+                query_id=query_id,
+                processing_time_ms=round(total_time_ms, 2),
+                stage_timings=stage_timings,
+                confidence=0.0,
+                llm_model=None,
+                embedding_model=settings.EMBEDDING_MODEL,
+                reranker_model=settings.RERANKER_MODEL if opts.rerank else None,
+                metadata={
+                    "user_id": user_id,
+                    "options": opts.model_dump(),
+                    "total_sources": 0,
+                    "warning": "no_retrieval_results",
+                },
+            )
+
         # Stage 4: Context Assembly
         stage_start = time.time()
         try:
