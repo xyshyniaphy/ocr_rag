@@ -125,10 +125,12 @@ RUN --mount=type=cache,target=/root/.cache/huggingface \
 
 # Setup NVIDIA Llama-3.2-NV Reranker Model (cross-encoder reranking)
 # Downloads reranker model for improved retrieval relevance
+# Uses HuggingFace mirror for reliable downloads
 # Retry up to 3 times if download fails
 RUN --mount=type=cache,target=/root/.cache/huggingface \
     for i in 1 2 3; do \
         echo "Download attempt $i/3..."; \
+        HF_ENDPOINT=https://hf-mirror.com \
         HF_HUB_ENABLE_HF_TRANSFER=1 \
         huggingface-cli download \
         nvidia/Llama-3.2-NV-RerankQA-1B-v2 \
