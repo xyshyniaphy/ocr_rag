@@ -57,10 +57,13 @@ async def upload_document(
     # Calculate hash
     file_hash = hashlib.sha256(content).hexdigest()
 
-    # Check for duplicates
+    # Check for duplicates (only active documents, not soft-deleted)
     from sqlalchemy import select
     result = await db.execute(
-        select(DocumentModel).where(DocumentModel.file_hash == file_hash)
+        select(DocumentModel).where(
+            DocumentModel.file_hash == file_hash,
+            DocumentModel.deleted_at.is_(None)  # Only check active documents
+        )
     )
     existing = result.scalar_one_or_none()
     if existing:

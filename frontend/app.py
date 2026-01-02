@@ -88,6 +88,7 @@ def api_request(
     data: Dict[str, Any] = None,
     params: Dict[str, Any] = None,
     files: Dict[str, Any] = None,
+    show_error: bool = True,
 ) -> Dict[str, Any]:
     """Make API request with auto-refresh on 401"""
     url = f"{API_BASE_URL}{endpoint}"
@@ -131,13 +132,40 @@ def api_request(
             else:
                 # Refresh failed, logout
                 st.session_state.authenticated = False
-                st.error("Session expired. Please login again.")
+                if show_error:
+                    st.error("Session expired. Please login again.")
                 return {}
+
+        # Check response status
+        if not response.ok:
+            error_msg = f"API Error {response.status_code}"
+            try:
+                error_detail = response.json()
+                error_msg += f": {error_detail.get('detail', error_detail.get('message', 'Unknown error'))}"
+            except:
+                if response.text:
+                    error_msg += f": {response.text[:200]}"
+            if show_error:
+                st.error(error_msg)
+            return {}
 
         response.raise_for_status()
         return response.json()
+    except requests.exceptions.Timeout:
+        if show_error:
+            st.error("Request timeout - the server took too long to respond")
+        return {}
+    except requests.exceptions.ConnectionError as e:
+        if show_error:
+            st.error(f"Connection error - cannot reach API at {API_BASE_URL}")
+        return {}
     except requests.exceptions.RequestException as e:
-        st.error(f"API Error: {str(e)}")
+        if show_error:
+            st.error(f"API Error: {str(e)}")
+        return {}
+    except Exception as e:
+        if show_error:
+            st.error(f"Unexpected error: {str(e)}")
         return {}
 
 
@@ -310,14 +338,39 @@ def render_documents():
         if keywords:
             metadata["keywords"] = [k.strip() for k in keywords.split(",")]
 
-        if st.button("Upload", use_container_width=True, type="primary"):
-            files = {"file": (uploaded_file.name, uploaded_file, "application/pdf")}
-            data = {"metadata": json.dumps(metadata)} if metadata else None
+        # Add unique key to button to avoid conflicts
+        if st.button("Upload Document", use_container_width=True, type="primary", key="upload_button"):
+            with st.spinner(f"Uploading {uploaded_file.name}..."):
+                try:
+                    # Prepare files and data for upload
+                    files = {"file": (uploaded_file.name, uploaded_file.getvalue(), "application/pdf")}
+                    data = {"metadata": json.dumps(metadata)} if metadata else {}
 
-            result = api_request("POST", "/documents/upload", data=data, files=files)
-            if "document_id" in result:
-                st.success(f"Document uploaded! ID: {result['document_id']}")
-                st.rerun()
+                    # Debug info
+                    st.info(f"Uploading: {uploaded_file.name} ({len(uploaded_file.getvalue())} bytes)")
+
+                    # Make API request
+                    result = api_request("POST", "/documents/upload", data=data, files=files)
+
+                    # Check result
+                    if result and "document_id" in result:
+                        st.success(f"✅ Document uploaded successfully!")
+                        st.balloons()
+                        st.info(f"Document ID: {result['document_id']}")
+                        if result.get("status") == "duplicate":
+                            st.warning("⚠️ This document already exists in the system.")
+                        # Clear the upload by forcing rerun
+                        import time
+                        time.sleep(1)
+                        st.rerun()
+                    else:
+                        st.error("❌ Upload failed - no document ID returned")
+                        if result:
+                            st.json(result)
+                except Exception as e:
+                    st.error(f"❌ Upload error: {str(e)}")
+                    import traceback
+                    st.error(traceback.format_exc())
 
     st.markdown("---")
     st.subheader("Document List")
