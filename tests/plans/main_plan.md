@@ -78,27 +78,31 @@ And success message should be displayed
 
 ### Phase 2: Document Upload
 
-**Test Case 2.1: Upload Test Document**
+**IMPORTANT: Use API for file upload, NOT browser UI**
+
+Browser file upload dialogs block test execution. Always use the backend API with authentication tokens.
+
+**Test Case 2.1: Upload Test Document via API**
 ```
-Given I am on the Streamlit application
-When I navigate to "Documents" page
-And I click "Upload Document" button
-And I select file "tests/testdata/test.pdf"
-And I click "Upload"
-Then the document should appear in the list
-And status should be "pending" → "processing" → "completed"
-And processing should complete within 60 seconds
+Given I have an authentication token
+When I POST to /api/v1/documents/upload
+And I include the PDF file in multipart/form-data
+And I set proper headers (Authorization: Bearer <token>)
+Then the document should be uploaded
+And I receive a document_id
+And status should be "pending"
+And processing starts automatically
 ```
 
-**Expected Upload Stages:**
-1. File selection dialog opens
-2. File is validated (PDF format, size check)
-3. Upload progress bar appears
-4. Document appears in list with status "pending"
-5. Status changes to "processing"
-6. OCR processing occurs
-7. Status changes to "completed"
-8. Document metadata is displayed (page count, chunk count, confidence)
+**API Upload Steps:**
+1. Login via POST /api/v1/auth/login to get access_token
+2. Read file: tests/testdata/test.pdf
+3. POST to /api/v1/documents/upload with:
+   - Headers: Authorization: Bearer <token>
+   - Files: file=(filename, file_bytes, "application/pdf")
+4. Receive response with document_id
+5. Poll /api/v1/documents/{document_id}/status until "completed"
+6. Verify document metadata via /api/v1/documents/{document_id}
 
 **Expected Document Metadata:**
 - Filename: test.pdf
@@ -319,15 +323,14 @@ docker compose ps
 4. Clear all documents
 5. Verify success message
 
-### Step 4: Execute Phase 2 (Document Upload)
-1. Navigate to Documents page
-2. Click upload button
-3. Select tests/testdata/test.pdf
-4. Wait for upload to complete
-5. Monitor status changes: pending → processing → completed
-6. Record processing time
-7. Verify document metadata
-8. Take screenshot
+### Step 4: Execute Phase 2 (Document Upload via API)
+1. Get auth token: POST /api/v1/auth/login
+2. Upload document: POST /api/v1/documents/upload with file
+3. Extract document_id from response
+4. Poll status: GET /api/v1/documents/{document_id}/status
+5. Wait for status to change: pending → processing → completed (max 60s)
+6. Verify metadata: GET /api/v1/documents/{document_id}
+7. Record processing time and document stats
 
 ### Step 5: Execute Phase 3 (Query Testing)
 For each test case in the test matrix:
@@ -477,20 +480,61 @@ class MainTestSuite:
     """Main E2E Test Suite for OCR RAG System"""
 
     def __init__(self):
-        self.base_url = "http://localhost:8501/"
+        self.api_base = "http://localhost:8000/api/v1"
         self.test_pdf = "tests/testdata/test.pdf"
         self.results = []
+        self.auth_token = None
 
-    async def setup(self):
+    def setup(self):
         """Initialize test environment"""
-        await self.navigate_to_home()
-        await self.clear_all_documents()
+        # Get auth token
+        login_response = requests.post(
+            f"{self.api_base}/auth/login",
+            json={"email": "admin@example.com", "password": "admin123"}
+        )
+        self.auth_token = login_response.json()["access_token"]
 
-    async def test_upload_document(self):
-        """Test document upload and processing"""
-        await self.navigate_to_documents()
-        await self.upload_document(self.test_pdf)
-        await self.wait_for_processing_complete()
+    def test_clear_documents(self):
+        """Clear all documents via API"""
+        headers = {"Authorization": f"Bearer {self.auth_token}"}
+        response = requests.delete(
+            f"{self.api_base}/documents/all",
+            headers=headers
+        )
+        return response.status_code == 200
+
+    def test_upload_document(self):
+        """Upload document via API"""
+        headers = {"Authorization": f"Bearer {self.auth_token}"}
+        with open(self.test_pdf, "rb") as f:
+            files = {"file": (os.path.basename(self.test_pdf), f, "application/pdf")}
+            response = requests.post(
+                f"{self.api_base}/documents/upload",
+                headers=headers,
+                files=files
+            )
+        return response.json()
+
+    def wait_for_processing(self, document_id, timeout=60):
+        """Wait for document processing to complete"""
+        headers = {"Authorization": f"Bearer {self.auth_token}"}
+        start_time = time.time()
+
+        while time.time() - start_time < timeout:
+            response = requests.get(
+                f"{self.api_base}/documents/{document_id}/status",
+                headers=headers
+            )
+            status = response.json()
+
+            if status["status"] == "completed":
+                return True
+            elif status["status"] == "failed":
+                return False
+
+            time.sleep(2)
+
+        return False
 
     async def test_query_all_combinations(self):
         """Test all query parameter combinations"""

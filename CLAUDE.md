@@ -852,6 +852,34 @@ Tests run automatically in CI/CD:
 
 ## Troubleshooting
 
+### E2E Testing with Chrome MCP
+
+**IMPORTANT: File Upload Must Use API, NOT Browser**
+
+When testing file uploads in E2E scenarios:
+- ❌ **DO NOT** use browser file upload dialogs - they block test execution
+- ✅ **DO** use the backend API with authentication tokens
+
+**Correct approach:**
+```python
+# Get auth token first
+login_response = requests.post(
+    "http://localhost:8000/api/v1/auth/login",
+    json={"email": "admin@example.com", "password": "admin123"}
+)
+token = login_response.json()["access_token"]
+
+# Upload via API
+headers = {"Authorization": f"Bearer {token}"}
+with open("test.pdf", "rb") as f:
+    files = {"file": ("test.pdf", f, "application/pdf")}
+    response = requests.post(
+        "http://localhost:8000/api/v1/documents/upload",
+        headers=headers,
+        files=files
+    )
+```
+
 **Issue**: OCR confidence low
 - Check GPU memory: `nvidia-smi`
 - Verify input image quality

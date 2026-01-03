@@ -266,8 +266,14 @@ def process_document(self, document_id: str) -> Dict[str, Any]:
                 raise
 
     try:
-        # Run async function with proper event loop management
-        result = asyncio.run(process())
+        # Run async function with proper event loop management for Celery
+        # Use asyncio.new_event_loop() instead of asyncio.run() to avoid loop conflicts
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            result = loop.run_until_complete(process())
+        finally:
+            loop.close()
         return result
 
     except Exception as e:
