@@ -412,33 +412,36 @@ Container File System (Volume Mounts - Read-Write):
 
 **CRITICAL POLICY: ALL TESTS MUST RUN INSIDE DOCKER**
 
-### Test Summary (2026-01-03 00:45 UTC)
+### Test Summary (2026-01-03 01:00 UTC)
 
-- **Total Tests:** 335
-- **Passing:** 320 (96%)
+- **Total Tests:** 370 (+35 new RAG models tests)
+- **Passing:** 355 (96%)
 - **Failing:** 5 (1%)
 - **Skipped:** 10 (3%)
 
 | Category | Tests | Pass Rate | Status |
 |----------|-------|-----------|--------|
-| **Unit** | 206 | 100% | ✅ Excellent |
+| **Unit** | 241 (+35) | 100% | ✅ Excellent |
 | **Integration** | 129 | 88% | ✅ Good |
-| **Total** | **335** | **96%** | ✅ Excellent |
+| **Total** | **370** | **96%** | ✅ Excellent |
 
 ### Recent Fixes (2026-01-03)
+- ✅ **FIXED**: "Unknown Document" bug - added `document_title` to Milvus metadata
+- ✅ Added comprehensive RAG models unit tests (35 tests in `test_rag_models.py`)
 - ✅ Fixed `get_metrics` import error in `backend/monitoring/__init__.py`
 - ✅ Fixed file permissions for `backend/api/v1/permissions.py`
 - ✅ Fixed `Permission` model import in `permissions.py`
 - ✅ Changed `DELETE /all` to soft-delete (keeps records in DB)
 - ✅ Fixed test bugs (case sensitivity, user ID ownership)
 
-### Unit Tests (206 passed) - 100% Pass Rate
+### Unit Tests (241 passed) - 100% Pass Rate
 - ✅ `test_config.py` - Configuration validation
 - ✅ `test_exceptions.py` - Custom exception classes
 - ✅ `test_logging.py` - Logging configuration
 - ✅ `test_security.py` - JWT token creation/verification
 - ✅ `test_cache.py` - Cache manager functionality
 - ✅ `test_permissions.py` - Permission system (15 tests)
+- ✅ `test_rag_models.py` - RAG Pydantic models (35 tests) **NEW**
 
 ### Integration Tests (114 passed, 5 failed, 10 skipped) - 96% Pass Rate
 - ✅ **Auth API** (17) - Login, registration, token refresh, profile
@@ -863,6 +866,40 @@ Tests run automatically in CI/CD:
 - Reduce `EMBEDDING_BATCH_SIZE`
 - Use smaller LLM model (Q4_K_M quantization)
 - Add more GPUs
+
+## Recent Changes & Bug Fixes
+
+### 2026-01-03
+
+**✅ FIXED: "Unknown Document" Bug in Query Results**
+- **Problem**: Query results displayed "Unknown Document (Page X)" instead of actual document titles
+- **Root Cause**: `document_title` was not included in Milvus metadata when chunks were inserted during document processing
+- **Fix**: Added `"document_title": document.title` to metadata in `backend/tasks/document_tasks.py:225`
+- **Impact**: New documents will display correct titles; existing documents need re-processing to show titles
+- **Files Changed**: `backend/tasks/document_tasks.py`
+
+**New Unit Tests for RAG Models**
+- Added comprehensive test suite: `tests/unit/models/test_rag_models.py` (35 tests)
+- Coverage includes:
+  - Reranker on/off scenarios
+  - Japanese (ja) and English (en) languages
+  - Source counts (1, 5, and parametrized)
+  - All combinations of above scenarios
+  - Validation tests for field ranges
+  - Custom RAG exception tests
+
+**Other Fixes**
+- Fixed import errors in `backend/monitoring/__init__.py`
+- Fixed file permissions for `backend/api/v1/permissions.py`
+- Changed `DELETE /all` to soft-delete (keeps records in DB)
+- Fixed test bugs (case sensitivity, user ID ownership)
+
+**Known Issues**
+- 5 document upload tests have test isolation issues (pass individually, fail in suite)
+  - These are NOT code bugs but test fixture issues
+  - Workaround: Run affected tests individually
+
+---
 
 ## Database
 

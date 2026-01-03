@@ -222,6 +222,7 @@ def process_document(self, document_id: str) -> Dict[str, Any]:
                             "confidence": chunk.metadata.confidence,
                             "created_at": datetime.utcnow().isoformat(),
                             "filename": document.filename,
+                            "document_title": document.title,  # Add document title for query results
                         }
                     })
 

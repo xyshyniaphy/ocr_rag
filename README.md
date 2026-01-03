@@ -1,6 +1,6 @@
 # Japanese OCR RAG System - Technical Specification Document
 
-**Version:** 1.0
+**Version:** 1.0.1
 **Date:** January 3, 2026
 **Target Language:** Japanese (日本語)
 **Classification:** Production-Ready Architecture
@@ -42,6 +42,8 @@
 | Integration Tests | ✅ Complete | 114 tests passing (96% pass rate) |
 
 **Latest Updates (2026-01-03):**
+- ✅ **FIXED**: "Unknown Document" bug in query results - document titles now display correctly
+- Added comprehensive RAG models unit tests (35 tests covering reranker on/off, JP/EN languages, source counts)
 - Fixed import errors in monitoring module
 - Fixed file permissions for new API routes
 - Changed `DELETE /all` to use soft delete instead of hard delete
@@ -1201,6 +1203,7 @@ groups:
 
 | Version | Date | Changes | Author |
 |---------|------|---------|--------|
+| 1.0.1 | 2026-01-03 | Fixed "Unknown Document" bug; added RAG models unit tests | Tech Team |
 | 1.0 | 2026-01-01 | Initial specification | Tech Team |
 
 ### Appendix D: Contact Information
