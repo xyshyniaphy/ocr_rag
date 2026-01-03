@@ -14,7 +14,8 @@ from backend.core.logging import get_logger
 from backend.core.exceptions import NotFoundException, ValidationException
 from backend.core.permissions import PermissionChecker
 from backend.db.session import get_db_session
-from backend.db.models import User as UserModel, Permission as PermissionModel, Document as DocumentModel
+from backend.db.models import User as UserModel, Document as DocumentModel
+from backend.models.permission import Permission as PermissionModel
 from backend.api.dependencies import get_current_user
 
 logger = get_logger(__name__)

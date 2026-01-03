@@ -873,7 +873,7 @@ class TestDeleteAllDocuments:
         assert "deleted_count" in result
         assert "message" in result
         assert result["deleted_count"] == 0
-        assert "No documents" in result["message"].lower()
+        assert "no documents" in result["message"].lower()
 
     @pytest.mark.asyncio
     async def test_delete_all_only_soft_deletes(self, client: AsyncClient, auth_headers: dict, db_session):
@@ -992,13 +992,21 @@ class TestDeleteAllDocuments:
     @pytest.mark.asyncio
     async def test_delete_all_then_list_returns_empty(self, client: AsyncClient, auth_headers: dict, db_session):
         """Test that list returns empty after delete_all"""
-        from backend.db.models import Document
+        from backend.db.models import Document, User
+        from backend.core.config import settings
+        from sqlalchemy import select
         import uuid
+        from jose import jwt
 
-        # Create a document
+        # Get user ID from auth token
+        token = auth_headers["Authorization"].replace("Bearer ", "")
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
+        user_id = payload["sub"]
+
+        # Create a document owned by the authenticated user
         doc = Document(
             id=uuid.uuid4(),
-            owner_id=uuid.uuid4(),
+            owner_id=uuid.UUID(user_id),
             filename="test.pdf",
             file_size_bytes=1000,
             file_hash="hash123",
