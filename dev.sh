@@ -119,7 +119,36 @@ EOF
 # Stop development environment
 dev_down() {
     print_header "Stopping Development Environment"
-    docker compose -f "$COMPOSE_FILE" -p "$PROJECT_NAME" down
+
+    # Stop all services with different profiles
+    print_msg "${BLUE}" "Stopping main services..."
+    docker compose -f "$COMPOSE_FILE" -p "$PROJECT_NAME" down --remove-orphans 2>/dev/null || true
+
+    # Stop test services if running
+    print_msg "${BLUE}" "Stopping test services..."
+    docker compose -f "$COMPOSE_FILE" -p "$PROJECT_NAME" --profile test down --remove-orphans 2>/dev/null || true
+
+    # Stop monitoring services if running
+    print_msg "${BLUE}" "Stopping monitoring services..."
+    docker compose -f "$COMPOSE_FILE" -p "$PROJECT_NAME" --profile monitoring down --remove-orphans 2>/dev/null || true
+
+    # Stop tools services if running
+    print_msg "${BLUE}" "Stopping tools services..."
+    docker compose -f "$COMPOSE_FILE" -p "$PROJECT_NAME" --profile tools down --remove-orphans 2>/dev/null || true
+
+    # Force stop any remaining containers with project name
+    print_msg "${YELLOW}" "Checking for any remaining containers..."
+    remaining_containers=$(docker ps -a --filter "name=ocr-rag-" --format "{{.Names}}" 2>/dev/null || true)
+    if [ -n "$remaining_containers" ]; then
+        print_msg "${YELLOW}" "Force stopping remaining containers: $remaining_containers"
+        echo "$remaining_containers" | xargs -r docker stop -t 5 2>/dev/null || true
+        echo "$remaining_containers" | xargs -r docker rm 2>/dev/null || true
+    fi
+
+    # Remove network if it still exists
+    print_msg "${BLUE}" "Cleaning up network..."
+    docker network rm ocr-rag-net-dev 2>/dev/null || true
+
     print_msg "${GREEN}" "All services stopped!"
 }
 
